@@ -1,0 +1,29 @@
+[package]
+name = "otherwise-mcp-hub"
+description = "One MCP stdio server for every installed Otherwise app: proxies their tools and adds the shared entities and Today feed"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "otherwise_mcp_hub"
+
+[[bin]]
+name = "otherwise-hub"
+path = "src/main.rs"
+
+[dependencies]
+otherwise-link.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+# a plain main: it doubles as the fake MCP child the proxy tests spawn
+[[test]]
+name = "proxy"
+harness = false
