@@ -1,4 +1,4 @@
-# otherwise-link specification, version 1
+# otherwise-link specification, version 1 (library 0.2)
 
 Normative description of the formats Otherwise apps share. The Rust crate `otherwise-link`
 implements all of it; an app in another language can follow this document instead.
@@ -15,22 +15,83 @@ Every app has a stable id matching `[a-z0-9][a-z0-9-]{0,63}`, never starting wit
 `diskmap`, `rama`. The id is the deep-link host, the Today file name, the key in an entity's
 `refs`, and the MCP tool prefix. `mcp` is reserved for changes made through `otherwise-hub`.
 
-## 2. Shared folder
+## 2. Data root
 
-| OS      | Folder                                         |
-|---------|------------------------------------------------|
-| macOS   | `~/Library/Application Support/Otherwise`      |
-| Windows | `%APPDATA%\Otherwise`                          |
-| Linux   | `$XDG_DATA_HOME/otherwise` (`~/.local/share/otherwise`) |
+All shared files live in one folder per user, the **data root**, which the user may move
+(a local folder, OneDrive, Dropbox, iCloud Drive…). Its location is recorded in a pointer file
+at a fixed place, `~/.otherwise/config.json` (Windows `%USERPROFILE%\.otherwise\config.json`):
 
-`OTHERWISE_DATA_DIR`, when set and non-empty, replaces it. Contents:
+```json
+{ "schema": 1, "data_root": "/Users/me/Library/CloudStorage/OneDrive-Personal/Otherwise" }
+```
+
+- `data_root`: absolute path. Missing, not absolute, or the file missing / unreadable: the
+  default, `~/.otherwise` (the pointer's own folder). Readers also accept `dataRoot`.
+- Readers MUST read the pointer again whenever they resolve the root (another app may have
+  moved it); it is written atomically, only by the launcher (or a library call it makes).
+- `OTHERWISE_DATA_DIR`, when set and non-empty, replaces the whole lookup.
+
+Contents:
 
 ```
 hub.json                shared settings (§6)
 entities.db             entity registry (§4), only after the user opted in
+entities.db.lock.json   which computer uses the registry (§2.2)
 today/<app id>.json     Today feeds (§5)
 today/.dismissed.json   dismissals (§5.3)
+<app id>/               the app's default folder for its own data (e.g. vigia/vigia.db)
 ```
+
+An app that lets the user put its documents elsewhere still uses `<app id>/` as the default for
+new ones. Apps' machine-local settings and caches stay in the platform's config folder.
+
+### 2.1 Moving the root and the pre-0.2 folder
+
+Moving: every item of the old root (all of the above except the pointer and lock files) is
+copied to the new folder and **verified** (SQLite: `integrity_check`, same `application_id`,
+`user_version` and row content; other files: same bytes); nothing at the destination is
+overwritten (a name already there blocks the move), and an item whose lock (§2.2) is held by
+another live process or another computer blocks it too. Only when every copy verified is the
+pointer written; then, for a move, the originals are removed (`hub.json` first). Pointing at a
+folder that already holds the data (a second computer on the same synced folder) writes only
+the pointer.
+
+Versions before 0.2 used a platform folder: macOS `~/Library/Application Support/Otherwise`,
+Windows `%APPDATA%\Otherwise`, Linux `$XDG_DATA_HOME/otherwise` (`~/.local/share/otherwise`).
+On first use, readers move its `entities.db`, `today/*` and `hub.json` (in that order) into the
+data root with the same verified copy, then remove the originals; a file already at the root
+with other content wins and the old one stays where it was. A `.migrated` JSON marker
+(`{"schema":1,"to":…,"at":…,"moved":[…],"kept":[…]}`) in the old folder makes this happen once.
+
+### 2.2 Locks and synced folders
+
+A file that one process (or one computer) should write at a time has a lock next to it,
+`<file>.lock.json`:
+
+```json
+{ "schema": 1, "app": "vigia", "host": "Ana's MacBook Pro", "pid": 4242,
+  "scope": "process", "since": 1763700000, "heartbeat": 1763700060 }
+```
+
+- The holder rewrites `heartbeat` (Unix seconds) at least every 60 s while it has the file open
+  and removes the lock when it closes it.
+- A lock is **stale** when its heartbeat is older than 10 minutes, or it names this computer
+  and a process that no longer runs; a stale lock may be taken. A fresh lock of another
+  computer means "open on <host>": apps MUST NOT write the file without the user's explicit
+  confirmation (then they take the lock over).
+- `"scope": "computer"`: shared by every process of that computer (used for `entities.db`,
+  which several apps open at once); it is not removed on close and simply goes stale. Every
+  `Registry::open_shared` refreshes it (at most once a minute) and fails when another computer
+  holds it.
+
+SQLite files that may sit in a synced folder use the rollback journal (`journal_mode=DELETE`)
+only, never WAL. Sync clients' "conflicted copies" (`name (… conflicted copy …).ext`,
+`name.sync-conflict-….ext`, `name 2.ext`, `name (1).ext`, OneDrive's `name-<computer>.ext`)
+SHOULD be reported to the user.
+
+The lock keeps two computers from writing the registry at the same time; it is **not** sync:
+the sync client still uploads whole files, so after switching computers its latest version may
+not have arrived yet. Real multi-device sync is a separate, future layer (`otherwise-sync`).
 
 ## 3. Deep links
 

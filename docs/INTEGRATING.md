@@ -6,7 +6,7 @@ optional and independent: do the ones that make sense for the app.
 
 ```toml
 # the crate that has the logic (core / cli), not only the GPUI app
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.1.0" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.2.0" }
 ```
 
 Rules that carry over from the apps' CLAUDE.md: shared features are **opt-in or read-only by
@@ -111,6 +111,8 @@ loop {
 }
 ```
 
+- `Error::InUseElsewhere(info)`: the data root is in a synced folder and another computer is
+  using the registry right now (`info.host`); skip this sync quietly or show a small notice.
 - When to sync: on start, after local edits (push just that record), and on a timer (every
   few minutes) or window activation. Run it off the UI thread; each call is one short
   transaction, so other apps never wait long.
@@ -142,7 +144,64 @@ loop {
 5. Check: `otherwise-hub list` shows the app and its tool count; in Claude Code
    `claude mcp add otherwise-hub -- otherwise-hub` (or Otherwise Apps' `… otherwise-apps mcp`).
 
-## 5. Checklist per app
+## 5. Where the app keeps its data (storage)
+
+The user chooses one **data root** for all Otherwise apps (default `~/.otherwise`, movable to
+OneDrive & co. from Otherwise Apps → Settings). Each app's default folder is
+`otherwise_link::paths::app_dir("<id>")` = `<root>/<id>/`. Machine-local settings, caches and
+models stay in the app's platform config folder (they aren't data and shouldn't sync).
+
+```rust
+use otherwise_link::{paths, storage, lock::{self, Lock, Scope, Holder}, cloud};
+
+let default_db = paths::app_dir("vigia").join("vigia.db");     // new default for new installs
+
+// moving / "Save As": close your connection first for a move
+storage::copy_sqlite(&current, &dest)?;   // VACUUM INTO + integrity_check + same content, never overwrites
+storage::move_sqlite(&current, &dest)?;   // the same, then deletes the original (+ sidecars)
+storage::move_tree(&old_files_dir, &new_files_dir)?;   // attachments folder: rename or verified copy
+
+// opening a document: lock + cloud checks
+match Lock::acquire(&path, "vigia", Scope::Process) {
+    Ok(l) => keep(l),                                  // heartbeat() every lock::HEARTBEAT_EVERY, drop on close
+    Err(Holder::Elsewhere(i)) => ask_open_read_only_or_take_over(&i.host),   // Lock::take_over after "Use here"
+    Err(Holder::Here(_)) => tell_already_open(),       // another window / process here
+    Err(_) => unreachable!(),
+}
+storage::ensure_rollback_journal(&conn)?;              // never WAL
+let st = storage::status(&path);                       // st.cloud (provider), st.lock, st.conflicts
+```
+
+`heartbeat()` returning `Err` means another computer took the file over: stop writing, tell the
+user. `relocate::plan(&from, &to)` reports a folder as blocked while a lock in it is live, so an
+app that keeps its database in `<root>/<id>/` must hold its lock while it has it open (that's
+what keeps Otherwise Apps from moving it underneath you).
+
+### Storage checklist (per app)
+
+- [ ] **Default location** `paths::app_dir("<id>")` (`<root>/<id>/<file>`) for new documents /
+      the default database. Remember whether the user chose a custom path; if not, always
+      resolve the default fresh (it follows the data root when the user moves it).
+- [ ] **Migrate from the old default** (e.g. `~/Library/Application Support/<App>/<file>`): only
+      when the user never chose a custom path and the new default doesn't exist yet. Ask on
+      first launch with a clear dialog ("Move to the Otherwise data folder / Keep where it is"),
+      then `storage::move_sqlite` (+ `storage::move_tree` for attachment folders), verified;
+      on "keep", remember the old path as the custom one. Never move without asking; never
+      overwrite.
+- [ ] **File menu**: *Save As…* (verified copy, then open the copy), *Move to…* (verified move,
+      the original deleted only after verification), *Show in Finder* (Explorer / file
+      manager), *Open…*, and a **recent files** list where a missing entry offers *Locate…*
+      (file picker) and *Remove from list*. CLI flags like `--db` keep working and are never
+      remembered.
+- [ ] **Cloud safety** when the file is anywhere (cheap, so always): rollback journal
+      (`storage::ensure_rollback_journal`), `Lock::acquire` on open (+ `heartbeat` on a timer,
+      release on close; "open on <host>" dialog with *Open read-only* / *Use here anyway*),
+      `storage::status` → show the provider name next to the path and warn about
+      `conflicts` (conflicted copies) with *Show in Finder*.
+- [ ] i18n for every new string (es/en/pt/fr) and tests on temp dirs (`Home::at`, `Root::at`,
+      `Lock::acquire_as` with a fake `Me` / clock) for the migration and the moves.
+
+## 6. Checklist per app
 
 - [ ] Depend on otherwise-link by tag; rusqlite 0.37.
 - [ ] Scheme in Info.plist, .desktop, Windows registration; links received on all three OSes.
@@ -151,3 +210,4 @@ loop {
 - [ ] Entity push / pull behind `Registry::open_shared` (silent when disabled).
 - [ ] `mcp` subcommand, read-only by default, `readOnlyHint` on reads, `--allow-writes`.
 - [ ] i18n keys for any new UI (es/en/pt/fr) + guard tests green; tests on temp dirs only.
+- [ ] Storage checklist (§5) done.

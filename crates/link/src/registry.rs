@@ -79,6 +79,8 @@ pub enum Error {
     NotOurs,
     KindMismatch { id: Uuid, existing: Kind, given: Kind },
     BadApp(String),
+    /// Another computer is using this registry (it sits in a synced folder); see [`crate::lock`].
+    InUseElsewhere(crate::lock::LockInfo),
 }
 
 impl std::fmt::Display for Error {
@@ -92,6 +94,7 @@ impl std::fmt::Display for Error {
             Error::NotOurs => write!(f, "this file is not an Otherwise entity registry"),
             Error::KindMismatch { id, existing, given } => write!(f, "entity {id} is a {}, not a {}", existing.key(), given.key()),
             Error::BadApp(a) => write!(f, "invalid app id {a:?}"),
+            Error::InUseElsewhere(i) => write!(f, "the shared entity registry is in use on {} (it is in a synced folder)", i.host),
         }
     }
 }
@@ -205,6 +208,13 @@ impl Registry {
         if !HubSettings::load(root).entities {
             return Err(Error::Disabled);
         }
+        // one computer at a time when the folder is shared through a sync client
+        let app = std::env::current_exe().ok().and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned())).unwrap_or_default();
+        let lock = crate::lock::Lock::acquire(&root.entities_db(), &app, crate::lock::Scope::Computer).map_err(|h| match h {
+            crate::lock::Holder::Elsewhere(i) | crate::lock::Holder::Here(i) => Error::InUseElsewhere(i),
+            _ => Error::Disabled,
+        })?;
+        lock.forget();
         Registry::open(&root.entities_db())
     }
 
@@ -217,10 +227,7 @@ impl Registry {
         conn.busy_timeout(BUSY_TIMEOUT)?;
         retry(|| {
             // setting the mode takes a lock even when nothing changes: only when it differs
-            let mode: String = conn.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;
-            if !mode.eq_ignore_ascii_case("delete") {
-                conn.pragma_update(None, "journal_mode", "DELETE")?;
-            }
+            crate::storage::ensure_rollback_journal(&conn)?;
             Ok(())
         })?;
         retry(|| migrate(&mut conn))?;
