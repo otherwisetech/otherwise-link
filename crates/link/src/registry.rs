@@ -215,9 +215,15 @@ impl Registry {
         }
         let mut conn = Connection::open(path)?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
-        conn.pragma_update(None, "journal_mode", "DELETE")?;
-        conn.pragma_update(None, "foreign_keys", "ON")?;
-        migrate(&mut conn)?;
+        retry(|| {
+            // setting the mode takes a lock even when nothing changes: only when it differs
+            let mode: String = conn.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;
+            if !mode.eq_ignore_ascii_case("delete") {
+                conn.pragma_update(None, "journal_mode", "DELETE")?;
+            }
+            Ok(())
+        })?;
+        retry(|| migrate(&mut conn))?;
         Ok(Registry { conn, path: path.to_path_buf() })
     }
 
@@ -259,6 +265,10 @@ impl Registry {
     /// card is found). An update unites lists and lets `card`'s set fields win; use
     /// [`Registry::replace`] to remove things.
     pub fn upsert(&mut self, app: &str, card: Entity) -> Result<Upserted> {
+        retry(|| self.upsert_once(app, card.clone()))
+    }
+
+    fn upsert_once(&mut self, app: &str, card: Entity) -> Result<Upserted> {
         check_app(app)?;
         let mut card = card;
         card.normalize()?;
@@ -296,6 +306,10 @@ impl Registry {
 
     /// Sets the card exactly as given (the user edited it). `card.id` must exist.
     pub fn replace(&mut self, app: &str, card: Entity) -> Result<Entity> {
+        retry(|| self.replace_once(app, card.clone()))
+    }
+
+    fn replace_once(&mut self, app: &str, card: Entity) -> Result<Entity> {
         check_app(app)?;
         let mut card = card;
         card.normalize()?;
@@ -324,6 +338,10 @@ impl Registry {
 
     /// Records that `app` calls entity `id` by `r` (sets `refs[app]`).
     pub fn link(&mut self, app: &str, id: Uuid, r: &str) -> Result<Entity> {
+        retry(|| self.link_once(app, id, r))
+    }
+
+    fn link_once(&mut self, app: &str, id: Uuid, r: &str) -> Result<Entity> {
         check_app(app)?;
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let id = resolve(&tx, id)?.ok_or(Error::NotFound(id))?;
@@ -338,6 +356,10 @@ impl Registry {
 
     /// Drops `app`'s ref from entity `id`.
     pub fn unlink(&mut self, app: &str, id: Uuid) -> Result<Entity> {
+        retry(|| self.unlink_once(app, id))
+    }
+
+    fn unlink_once(&mut self, app: &str, id: Uuid) -> Result<Entity> {
         check_app(app)?;
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let id = resolve(&tx, id)?.ok_or(Error::NotFound(id))?;
@@ -354,6 +376,10 @@ impl Registry {
     /// Folds `drop` into `keep`: `keep`'s fields win, `drop` fills gaps, lists / refs / keys unite,
     /// `drop`'s name becomes an alias. `drop` then resolves to `keep`.
     pub fn merge(&mut self, app: &str, keep: Uuid, drop: Uuid) -> Result<Entity> {
+        retry(|| self.merge_once(app, keep, drop))
+    }
+
+    fn merge_once(&mut self, app: &str, keep: Uuid, drop: Uuid) -> Result<Entity> {
         check_app(app)?;
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let keep = resolve(&tx, keep)?.ok_or(Error::NotFound(keep))?;
@@ -385,6 +411,10 @@ impl Registry {
 
     /// Deletes entity `id` (a tombstone stays for the change log). False if it wasn't there.
     pub fn delete(&mut self, app: &str, id: Uuid) -> Result<bool> {
+        retry(|| self.delete_once(app, id))
+    }
+
+    fn delete_once(&mut self, app: &str, id: Uuid) -> Result<bool> {
         check_app(app)?;
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let Some(id) = resolve(&tx, id)? else { return Ok(false) };
@@ -526,6 +556,10 @@ impl Registry {
     /// `app` has applied everything up to `seq`.
     pub fn ack(&mut self, app: &str, seq: i64) -> Result<()> {
         check_app(app)?;
+        retry(|| self.ack_once(app, seq))
+    }
+
+    fn ack_once(&mut self, app: &str, seq: i64) -> Result<()> {
         self.conn.execute("INSERT INTO cursors(app, seq, at) VALUES (?1, ?2, ?3) ON CONFLICT(app) DO UPDATE SET seq = max(seq, excluded.seq), at = excluded.at", params![app, seq, now()])?;
         Ok(())
     }
@@ -536,6 +570,27 @@ impl Registry {
         let mut st = self.conn.prepare("SELECT app, ref FROM refs WHERE entity_id = ?1 ORDER BY app, ref")?;
         let rows = st.query_map([id.to_string()], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+}
+
+fn busy(e: &Error) -> bool {
+    matches!(e, Error::Sql(rusqlite::Error::SqliteFailure(f, _)) if matches!(f.code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
+}
+
+/// SQLite's busy handler waits up to [`BUSY_TIMEOUT`], but polling waiters can starve behind a
+/// stream of other writers (seen on Windows), and some lock upgrades return `SQLITE_BUSY` without
+/// waiting at all. A transaction that failed that way changed nothing, so run it again.
+fn retry<T>(mut f: impl FnMut() -> Result<T>) -> Result<T> {
+    let mut attempt: u64 = 0;
+    loop {
+        match f() {
+            Err(e) if busy(&e) && attempt < 8 => {
+                attempt += 1;
+                let jitter = (std::process::id() as u64 ^ chrono::Utc::now().timestamp_subsec_nanos() as u64) % 50;
+                std::thread::sleep(Duration::from_millis(20 * attempt + jitter));
+            }
+            r => return r,
+        }
     }
 }
 
