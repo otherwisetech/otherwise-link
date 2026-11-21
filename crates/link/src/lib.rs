@@ -11,18 +11,28 @@
 //!   cursors for incremental sync.
 //! - [`today`]: the Today feed (one small JSON file per app, merged by the reader).
 //! - [`settings`]: the shared `hub.json` (registry opt-in, MCP write tools).
-//! - [`paths`]: where all of this lives (`~/Library/Application Support/Otherwise` and friends).
+//! - [`paths`]: where all of this lives: the user's data root (default `~/.otherwise`, movable to
+//!   OneDrive & co. through `~/.otherwise/config.json`) and each app's default folder in it.
+//! - [`relocate`]: moving the data root (plan, verified copy, pointer) and the one-time move from
+//!   the pre-0.2 folder.
+//! - [`storage`] + [`cloud`] + [`lock`]: helpers every app uses for its own files: verified
+//!   SQLite / file / folder copies and moves, rollback journal, cloud-folder detection, conflicted
+//!   copies, and the "open on another computer" lock.
 //!
 //! The formats are specified in `docs/SPEC.md`; `docs/INTEGRATING.md` is the how-to for apps.
 pub mod apps;
+pub mod cloud;
 pub mod entity;
 pub mod fsutil;
 pub mod link;
+pub mod lock;
 pub mod open;
 pub mod paths;
 pub mod register;
 pub mod registry;
+pub mod relocate;
 pub mod settings;
+pub mod storage;
 pub mod tax;
 pub mod text;
 pub mod today;
