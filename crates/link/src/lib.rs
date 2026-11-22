@@ -10,6 +10,8 @@
 //! - [`registry`]: the opt-in shared SQLite registry of those cards, with a change log and per-app
 //!   cursors for incremental sync.
 //! - [`today`]: the Today feed (one small JSON file per app, merged by the reader).
+//! - [`events`] + [`ics`] + [`holidays`]: the calendar feed (`<root>/<app>/events.json`, RRULE
+//!   subset, merged and expanded for a range), iCalendar export / import, computed holidays.
 //! - [`settings`]: the shared `hub.json` (registry opt-in, MCP write tools).
 //! - [`paths`]: where all of this lives: the user's data root (default `~/.otherwise`, movable to
 //!   OneDrive & co. through `~/.otherwise/config.json`) and each app's default folder in it.
@@ -23,7 +25,10 @@
 pub mod apps;
 pub mod cloud;
 pub mod entity;
+pub mod events;
 pub mod fsutil;
+pub mod holidays;
+pub mod ics;
 pub mod link;
 pub mod lock;
 pub mod open;

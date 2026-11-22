@@ -6,7 +6,7 @@ optional and independent: do the ones that make sense for the app.
 
 ```toml
 # the crate that has the logic (core / cli), not only the GPUI app
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.2.0" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.3.0" }
 ```
 
 Rules that carry over from the apps' CLAUDE.md: shared features are **opt-in or read-only by
@@ -201,12 +201,42 @@ what keeps Otherwise Apps from moving it underneath you).
 - [ ] i18n for every new string (es/en/pt/fr) and tests on temp dirs (`Home::at`, `Root::at`,
       `Lock::acquire_as` with a fake `Me` / clock) for the migration and the moves.
 
-## 6. Checklist per app
+## 6. Publish calendar events
+
+The Calendar view of Otherwise Apps merges every app's `<data root>/<id>/events.json`
+(SPEC §9). Publish from the app's core when its data changes (start, after edits, on its
+timer), off the UI thread for big data sets; `publish` skips the write when nothing changed.
+
+```rust
+use otherwise_link::{Link, Root, events::{self, Event, Kind}};
+
+let evs: Vec<Event> = items.iter().map(|it| {
+    Event::day(format!("item-{}", it.id), Kind::Due, it.title.clone(), it.deadline)   // stable id
+        .link(&Link::new("vigia").segment("item").segment(it.id.to_string()))
+        .category(it.category_label())
+}).collect();
+let bday = Event::day("p12-birthday", Kind::Birthday, "Ana", birth).rrule("FREQ=YEARLY");
+events::publish(&Root::system(), "vigia", &evs, None)?;   // [] when there is nothing
+// the user turned the calendar off in your app:
+events::clear(&Root::system(), "vigia")?;
+```
+
+- Prefer one event with a rule (`FREQ=MONTHLY`, `FREQ=YEARLY`) over many instances; when you
+  write instances (computed pay dates, shifted to business days), give them a common `series`
+  and cover about a year (`window`).
+- Private things (amounts, health, salaries): `busy_only(true)` and leave the amount out of
+  the title; make it a setting ("Hide details in Otherwise Apps", default on for money).
+- `ics::write` gives you an `.ics` export for free; `holidays` gives the same holidays the
+  Calendar shows (`holidays::shift` for business days).
+- Every event's `link` should open the thing in your app (register `otherwise-<id>://`, §1).
+
+## 7. Checklist per app
 
 - [ ] Depend on otherwise-link by tag; rusqlite 0.37.
 - [ ] Scheme in Info.plist, .desktop, Windows registration; links received on all three OSes.
 - [ ] `entity/<uuid>` + own paths handled, documented in README.
 - [ ] Today feed published (translated titles, stable ids, `expires`).
+- [ ] Events feed published (§6; links, busy-only for private data, cleared when turned off).
 - [ ] Entity push / pull behind `Registry::open_shared` (silent when disabled).
 - [ ] `mcp` subcommand, read-only by default, `readOnlyHint` on reads, `--allow-writes`.
 - [ ] i18n keys for any new UI (es/en/pt/fr) + guard tests green; tests on temp dirs only.

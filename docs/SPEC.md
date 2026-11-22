@@ -1,4 +1,4 @@
-# otherwise-link specification, version 1 (library 0.2)
+# otherwise-link specification, version 1 (library 0.3)
 
 Normative description of the formats Otherwise apps share. The Rust crate `otherwise-link`
 implements all of it; an app in another language can follow this document instead.
@@ -40,6 +40,7 @@ entities.db.lock.json   which computer uses the registry (§2.2)
 today/<app id>.json     Today feeds (§5)
 today/.dismissed.json   dismissals (§5.3)
 <app id>/               the app's default folder for its own data (e.g. vigia/vigia.db)
+<app id>/events.json    the app's calendar events (§9)
 ```
 
 An app that lets the user put its documents elsewhere still uses `<app id>/` as the default for
@@ -328,7 +329,7 @@ Written by the launcher only (atomically); missing or unreadable means all defau
 On Windows / Linux the version comes from `.otherwise-install.json` (`{"id": …, "version": …}`)
 written by the launcher next to the binary. The built-in table (`apps::KNOWN`) lists id, name,
 bundle id, bundle / folder names, binaries, MCP arguments and capabilities (`deepLinks`,
-`today`, `entities`, `mcp`).
+`today`, `entities`, `mcp`, `calendar`).
 
 ## 8. MCP
 
@@ -341,8 +342,91 @@ write flag only when `mcpWrites` is on, and offers:
 
 - every child tool as `<app id>.<tool>` (calls also accept `<app id>__<tool>`), description
   prefixed with `[<app name>]`; tools not annotated read-only only when writes are on;
-- `entities_search`, `entities_get`, `today`, `open_link`; with writes on, `entities_upsert` and
+- `entities_search`, `entities_get`, `today`, `calendar_events` (§9.4), `open_link`; with writes on, `entities_upsert` and
   `entities_link` (registry changes are recorded with app id `mcp`).
 
 Writes are re-checked against `hub.json` on every call. A child that fails to start within 15 s
 is skipped; one that died is restarted once per call; a call that times out (120 s) kills it.
+
+## 9. Events feed (calendar)
+
+Added in library 0.3. The Today feed (§5) says what needs attention now; the events feed says
+what is on the calendar (due dates, renewals, planned payments, birthdays, audits…), for
+Otherwise Apps' Calendar view, its combined ICS file and the hub's `calendar_events` tool.
+
+### 9.1 File
+
+`<data root>/<app id>/events.json`, written only by that app, whole and atomically (as §5.1).
+Writers SHOULD skip the write when the list didn't change.
+
+```json
+{ "schema": 1, "app": "vigia", "updatedAt": "2026-11-21T08:00:00Z",
+  "window": { "from": "2026-11-01", "to": "2027-11-30" },
+  "events": [
+    { "id": "item-42", "title": "SOAT ABC123 vence", "start": "2026-11-30", "kind": "due",
+      "link": "otherwise://vigia/item/42", "entities": ["6f0c…"] },
+    { "id": "rent", "title": "Arriendo", "start": "2026-01-05", "rrule": "FREQ=MONTHLY",
+      "kind": "payment", "status": "confirmed", "color": "orange", "busyOnly": true } ] }
+```
+
+| Field       | Notes |
+|-------------|-------|
+| `id`        | Required, unique within the file, stable across rewrites. |
+| `title`     | Required, in the user's language; readers cut it at 200 characters. |
+| `body`, `location` | Optional text. |
+| `start`     | Required. `YYYY-MM-DD` (all day) or RFC 3339 with an offset (a moment). An event whose `start` doesn't parse is ignored. |
+| `end`       | Optional, same type as `start`. All day: the **last day, inclusive** (default: `start`). Timed: the end instant, exclusive (default: `start`). |
+| `timezone`  | Optional IANA name the event was made in; informational (the offsets rule). |
+| `rrule`     | Optional recurrence, the subset of §9.2. Readers that can't parse it show the first occurrence only. |
+| `exdates`   | Days (`YYYY-MM-DD`; an RFC 3339 value counts by its day in the start's offset) the rule skips. |
+| `series`    | Optional: groups expanded instances, for apps that write occurrences instead of a rule. |
+| `kind`      | `due`, `renewal`, `reminder`, `payment`, `payroll`, `tax`, `close`, `birthday`, `anniversary`, `meeting`, `booking`, `task`, `audit`, `maintenance`, `warranty`, `holiday`, `other` (default; unknown kinds read as `other`). |
+| `category`  | Optional app label, already translated. |
+| `status`    | `confirmed` (default; unknown values read as it), `tentative`, `done`, `cancelled` (readers leave it out). |
+| `color`     | Optional hint: `#rrggbb` or `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple`, `pink`, `gray`. Readers may color by app instead. |
+| `entities`  | Shared entity ids (§4) it is about. |
+| `link`      | `otherwise://<app>/…` that opens the thing (an `https` URL for web sources). |
+| `busyOnly`  | Private: readers show the title only in the user's own calendar UI. Exports (ICS), assistants and MCP get a generic title ("Busy") without `body`, `location`, `category`. Writers SHOULD keep amounts and other sensitive details out of `title` when the user asked for privacy. |
+| `window`    | Optional (feed level): the range expanded instances cover. |
+
+Limits: at most 5000 events per file, 4 MiB per file; one event yields at most 1000
+occurrences per read. Writers SHOULD publish rules rather than long instance lists, and keep
+expanded instances to about a year ahead.
+
+### 9.2 Recurrence
+
+`FREQ=DAILY|WEEKLY|MONTHLY|YEARLY` with `INTERVAL` (≥ 1), `COUNT`, `UNTIL` (`YYYYMMDD`, a
+day: occurrences may start on it), `BYDAY` (`MO,WE`; in MONTHLY / YEARLY `2MO`, `-1FR` = the
+nth weekday of the month), `BYMONTH`, `BYMONTHDAY` (`-1` = last day). Other parts are ignored;
+another FREQ makes the rule unusable. Week starts on Monday. Days a rule names that don't exist
+(Feb 30, Feb 29 in a common year) are skipped, as in RFC 5545. A timed rule repeats the
+start's wall-clock time in the start's **offset** (no time-zone database): writers whose
+events cross a DST change SHOULD write instances instead.
+
+### 9.3 Reading
+
+Readers list the data root's folders named by a valid app id, read `<folder>/events.json`,
+skip newer schemas and unparsable files (reporting them), set every event's `app` from the
+**folder name**, drop `cancelled` events, expand rules for the requested range of local days
+and sort by first local day, all-day before timed, then start time, app id, event id. An
+occurrence's key is `<app>/<id>/<start>`. Holidays merged by readers use the pseudo app id
+`holidays`.
+
+### 9.4 ICS and the hub
+
+`ics::write` exports events as iCalendar: UID `<id>.<app>@otherwise.local`, all-day events
+as `VALUE=DATE` with an exclusive `DTEND`, timed ones in UTC, `RRULE` / `EXDATE` kept, `URL`
+= the link, busy-only events as `SUMMARY:<busy label>` + `CLASS:PRIVATE` without details.
+`ics::parse` reads calendars into events (overrides by `RECURRENCE-ID` replace their
+occurrence; `TZID` / floating times are read in the reader's zone).
+
+`calendar_events` (read-only): `{from?, to?, apps?, holidays?}` → occurrences between two
+local days (default today + 6 days, at most 400 days), busy-only events redacted.
+
+## 10. Holidays
+
+`holidays` computes public holidays from their rules (no data, no network): `co` (Ley
+Emiliani moves, Easter-based days), `us` (federal, observed days), `us-wy` (Wyoming state
+offices), `es`, `mx`, `br`, `ca`. Each has a stable id (`co_new_year`, `us_thanksgiving`…)
+for apps to translate and its proper name in the country's language. Apps that show holidays
+or shift dates to business days SHOULD use it so they agree.

@@ -114,7 +114,7 @@ fn read_only_by_default() {
     let e = env();
     let mut h = hub(&e, vec![spec("vigia", "ok", false)], None);
     let n = names(&mut h);
-    assert_eq!(n, ["entities_search", "entities_get", "today", "open_link", "vigia.search"], "write tools and unannotated child tools are hidden");
+    assert_eq!(n, ["entities_search", "entities_get", "today", "calendar_events", "open_link", "vigia.search"], "write tools and unannotated child tools are hidden");
     let r = call(&mut h, "vigia.search", json!({"q": "soat"}));
     assert_eq!(r["result"]["structuredContent"]["tool"], "search");
     assert_eq!(r["result"]["structuredContent"]["args"]["q"], "soat");
@@ -230,6 +230,21 @@ fn today_and_open_link() {
     assert_eq!(r["result"]["structuredContent"]["by"], "otherwise-apps");
     assert_eq!(call(&mut h, "open_link", json!({"url": "https://evil.example"}))["result"]["isError"], true);
     assert_eq!(*e.opened.lock().unwrap(), ["otherwise://vigia/item/1", "otherwise://rama/repo"]);
+
+    use otherwise_link::events::{self as cal, Kind};
+    cal::publish(&e.root, "vigia", &[cal::Event::new("soat", Kind::Due, "SOAT", "2026-12-01").link(&Link::new("vigia").segment("item").segment("1"))], None).unwrap();
+    cal::publish(&e.root, "expense", &[cal::Event::new("rent", Kind::Payment, "Rent 4.500.000", "2026-11-05").rrule("FREQ=MONTHLY").busy_only(true).body("secret")], None).unwrap();
+    let r = call(&mut h, "calendar_events", json!({"from": "2026-11-01", "to": "2026-12-31", "holidays": ["co"]}));
+    let ev = r["result"]["structuredContent"]["events"].as_array().unwrap().clone();
+    let got: Vec<(String, String)> = ev.iter().map(|x| (x["firstDay"].as_str().unwrap().to_string(), x["app"].as_str().unwrap().to_string())).collect();
+    assert_eq!(got.len(), 2 + 1 + 4, "{got:?}");
+    let rent = ev.iter().find(|x| x["app"] == "expense").unwrap();
+    assert_eq!((rent["title"].clone(), rent["body"].clone()), (json!("busy"), Value::Null), "busy-only events are redacted");
+    assert!(!r.to_string().contains("4.500.000"));
+    let only = call(&mut h, "calendar_events", json!({"from": "2026-11-01", "to": "2026-12-31", "apps": ["vigia"]}));
+    assert_eq!(only["result"]["structuredContent"]["events"][0]["link"], "otherwise://vigia/item/1");
+    assert_eq!(call(&mut h, "calendar_events", json!({"from": "2026-01-01", "to": "2028-01-01"}))["result"]["isError"], true);
+    assert_eq!(call(&mut h, "calendar_events", json!({"from": "nope"}))["result"]["isError"], true);
 }
 
 fn protocol() {
@@ -265,7 +280,7 @@ fn protocol() {
     assert_eq!(lines[0]["id"], 1);
     assert_eq!(lines[1]["error"]["code"], -32700);
     assert_eq!(lines[2]["error"]["code"], -32600);
-    assert_eq!(lines[3]["result"]["tools"].as_array().unwrap().len(), 4);
+    assert_eq!(lines[3]["result"]["tools"].as_array().unwrap().len(), 5);
 }
 
 fn discovery_to_children() {

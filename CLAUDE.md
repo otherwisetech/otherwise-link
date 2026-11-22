@@ -5,7 +5,7 @@ rama, mosaico, expense, Vigía, Nodo, Otherwise Apps…). Pure Rust, **no GPUI a
 open-source and closed-source apps can both depend on it. Apps depend on it by git tag:
 
 ```toml
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.2.0" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.3.0" }
 ```
 
 ## Layout
@@ -17,7 +17,9 @@ crates/link  otherwise-link (lib `otherwise_link`):
              apps.rs (KNOWN app table, Locations, detect / discover, Info.plist + install marker),
              entity.rs (cards: kinds, normalize, natural keys, absorb / apply), tax.rs (tax ids +
              check digits), registry.rs (SQLite entities.db: migrations, CRUD, merge, change log,
-             cursors), today.rs (per-app feed files, merge, expiry, dismissals), settings.rs
+             cursors), today.rs (per-app feed files, merge, expiry, dismissals), events.rs
+             (<root>/<app>/events.json calendar feed, RRULE subset, expansion, merge), ics.rs
+             (iCalendar write / parse), holidays.rs (computed public holidays, business days), settings.rs
              (hub.json), paths.rs (data root: ~/.otherwise/config.json pointer, app_dir), relocate.rs
              (plan / move / copy the root, pre-0.2 migration + .migrated marker), storage.rs
              (verified SQLite / file / folder copy + move, rollback journal, status), cloud.rs
@@ -25,7 +27,7 @@ crates/link  otherwise-link (lib `otherwise_link`):
              / heartbeat, stale), fsutil.rs (atomic writes), text.rs (accent folding)
 crates/hub   otherwise-mcp-hub (lib `otherwise_mcp_hub` + bin `otherwise-hub`): child.rs (one
              app's MCP server as a child process), hub.rs (config from discovery, routing,
-             read-only gate, restart), tools.rs (entities_* / today / open_link), rpc.rs
+             read-only gate, restart), tools.rs (entities_* / today / calendar_events / open_link), rpc.rs
 docs/        SPEC.md (formats: normative), INTEGRATING.md (how an app plugs in)
 ```
 
@@ -43,7 +45,7 @@ docs/        SPEC.md (formats: normative), INTEGRATING.md (how an app plugs in)
   overwrite at a destination; tests cover every move path (storage.rs, relocate.rs). The
   pointer file `~/.otherwise/config.json` is the only fixed path; everything else follows
   `data_root()`, read fresh each time.
-- **Never write another app's Today file**; writes are atomic (`fsutil::write_atomic`).
+- **Never write another app's Today or events file**; writes are atomic (`fsutil::write_atomic`).
 - **The hub is read-only by default.** Write tools (own, and child tools not annotated
   `readOnlyHint: true`) only with `hub.json` `mcpWrites`, re-checked on every call. Never touch
   the user's Claude / Codex / MCP client config: we print the `claude mcp add` command, the
