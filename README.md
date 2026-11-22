@@ -3,15 +3,16 @@
 The shared integration layer of [Otherwise Technologies](https://otherwisetech.com)' desktop
 apps: deep links between them, finding which ones are installed, one registry of the people,
 companies, vehicles, properties, devices and sites they all talk about, a Today feed that
-gathers what needs attention, and one MCP server for all of them.
+gathers what needs attention, a calendar feed (with ICS export / import and computed public
+holidays), and one MCP server for all of them.
 
 Pure Rust with no UI dependency, so any app (open or closed source, GPUI or not) can use it.
 macOS, Windows and Linux.
 
 | Crate | What |
 |-------|------|
-| [`otherwise-link`](crates/link) | Library: `link`, `open`, `register`, `apps`, `entity`, `tax`, `registry`, `today`, `settings`, `paths` |
-| [`otherwise-mcp-hub`](crates/hub) | Library + `otherwise-hub` binary: a stdio MCP server proxying every installed app's MCP tools (`expense.*`, `vigia.*`, `nodo.*`) plus `entities_*`, `today` and `open_link` |
+| [`otherwise-link`](crates/link) | Library: `link`, `open`, `register`, `apps`, `entity`, `tax`, `registry`, `today`, `events`, `ics`, `holidays`, `settings`, `paths` |
+| [`otherwise-mcp-hub`](crates/hub) | Library + `otherwise-hub` binary: a stdio MCP server proxying every installed app's MCP tools (`expense.*`, `vigia.*`, `nodo.*`) plus `entities_*`, `today`, `calendar_events` and `open_link` |
 
 - **Spec**: [docs/SPEC.md](docs/SPEC.md) (link syntax, card JSON, `entities.db`, Today files,
   `hub.json`, discovery, MCP naming).
@@ -19,7 +20,7 @@ macOS, Windows and Linux.
 
 ```toml
 [dependencies]
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.2.0" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.3.0" }
 ```
 
 ```rust

@@ -30,6 +30,8 @@ pub enum Capability {
     Entities,
     /// `<cli> mcp` is a stdio MCP server (proxied by `otherwise-hub`).
     Mcp,
+    /// Publishes an events feed (`<root>/<app>/events.json`) for the calendar.
+    Calendar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -131,13 +133,15 @@ pub const HUB_ID: &str = link::HUB_APP;
 /// shipped one yet simply isn't found doing it (no `mcp` subcommand → the hub skips it).
 pub static KNOWN: &[KnownApp] = &[
     KnownApp { id: HUB_ID, name: "Otherwise Apps", bundle_id: "io.github.otherwisetech.otherwise-apps", app_name: "Otherwise Apps", install_name: "otherwise-apps", binary: "otherwise-apps", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Today, Entities] },
-    KnownApp { id: "expense", name: "expense", bundle_id: "io.github.otherwisetech.expense", app_name: "expense", install_name: "expense", binary: "expense", cli: &["expense-cli", "expense"], mcp_args: &["mcp"], mcp_write_arg: Some("--allow-writes"), open_source: false, capabilities: &[DeepLinks, Today, Entities, Mcp] },
-    KnownApp { id: "vigia", name: "Vigía", bundle_id: "io.github.otherwisetech.vigia-app", app_name: "Vigía", install_name: "vigia", binary: "vigia-app", cli: &["vigia"], mcp_args: &["mcp"], mcp_write_arg: Some("--allow-writes"), open_source: false, capabilities: &[DeepLinks, Today, Entities, Mcp] },
+    KnownApp { id: "expense", name: "expense", bundle_id: "io.github.otherwisetech.expense", app_name: "expense", install_name: "expense", binary: "expense", cli: &["expense-cli", "expense"], mcp_args: &["mcp"], mcp_write_arg: Some("--allow-writes"), open_source: false, capabilities: &[DeepLinks, Today, Entities, Mcp, Calendar] },
+    KnownApp { id: "vigia", name: "Vigía", bundle_id: "io.github.otherwisetech.vigia-app", app_name: "Vigía", install_name: "vigia", binary: "vigia-app", cli: &["vigia"], mcp_args: &["mcp"], mcp_write_arg: Some("--allow-writes"), open_source: false, capabilities: &[DeepLinks, Today, Entities, Mcp, Calendar] },
     KnownApp { id: "nodo", name: "Nodo", bundle_id: "io.github.otherwisetech.nodo-app", app_name: "Nodo", install_name: "nodo", binary: "nodo-app", cli: &["nodo"], mcp_args: &["mcp"], mcp_write_arg: Some("--allow-writes"), open_source: false, capabilities: &[DeepLinks, Today, Entities, Mcp] },
-    KnownApp { id: "genealogy", name: "genealogy-rs", bundle_id: "io.github.otherwisetech.genealogy-rs", app_name: "genealogy-rs", install_name: "genealogy-rs", binary: "genealogy-rs", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Entities] },
+    KnownApp { id: "genealogy", name: "genealogy-rs", bundle_id: "io.github.otherwisetech.genealogy-rs", app_name: "genealogy-rs", install_name: "genealogy-rs", binary: "genealogy-rs", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Entities, Calendar] },
     KnownApp { id: "mosaico", name: "mosaico", bundle_id: "io.github.otherwisetech.mosaico", app_name: "mosaico", install_name: "mosaico", binary: "mosaico", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Today] },
     KnownApp { id: "diskmap", name: "diskmap", bundle_id: "io.github.otherwisetech.diskmap", app_name: "diskmap", install_name: "diskmap", binary: "diskmap", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Today] },
     KnownApp { id: "rama", name: "rama", bundle_id: "io.github.otherwisetech.rama", app_name: "rama", install_name: "rama", binary: "rama", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Today] },
+    KnownApp { id: "brujula", name: "Brújula", bundle_id: "com.otherwisetech.brujula", app_name: "Brújula", install_name: "brujula", binary: "brujula", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: false, capabilities: &[DeepLinks, Calendar] },
+    KnownApp { id: "helio", name: "Helio", bundle_id: "com.otherwisetech.helio", app_name: "Helio", install_name: "helio", binary: "helio", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: false, capabilities: &[DeepLinks, Calendar] },
 ];
 
 pub fn known(id: &str) -> Option<&'static KnownApp> {
@@ -330,7 +334,7 @@ mod tests {
         assert_eq!(ids.len(), KNOWN.len(), "duplicate ids");
         for a in KNOWN {
             assert!(link::valid_app_id(a.id), "{}", a.id);
-            assert!(a.bundle_id.starts_with("io.github.otherwisetech."), "{}", a.id);
+            assert!(a.bundle_id.starts_with("io.github.otherwisetech.") || a.bundle_id.starts_with("com.otherwisetech."), "{}", a.id);
             if a.capabilities.contains(&Mcp) {
                 assert!(!a.cli.is_empty() && !a.mcp_args.is_empty(), "{} declares MCP without a CLI", a.id);
             }

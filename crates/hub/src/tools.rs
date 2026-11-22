@@ -43,6 +43,12 @@ pub static TOOLS: &[ToolDef] = &[
         schema: || json!({"type": "object", "properties": {"days": {"type": "integer", "minimum": 0, "description": "Only events up to this many days ahead (overdue and undated ones included)"}, "app": {"type": "string", "description": "Only this app's events"}}}),
     },
     ToolDef {
+        name: "calendar_events",
+        description: "The user's calendar across their Otherwise apps between two days: due dates, renewals, planned payments, birthdays, audits… merged from every app's events feed with recurrences expanded, optionally with public holidays. Each occurrence has the app, title, start / end (a day or an RFC 3339 time), kind, status and an otherwise:// link. Private (busy-only) events come back as \"busy\" without details.",
+        write: false,
+        schema: || json!({"type": "object", "properties": {"from": {"type": "string", "format": "date", "description": "First day, YYYY-MM-DD (default today)"}, "to": {"type": "string", "format": "date", "description": "Last day, YYYY-MM-DD, inclusive (default from + 6 days; at most 400 days after from)"}, "apps": {"type": "array", "items": {"type": "string"}, "description": "Only these app ids"}, "holidays": {"type": "array", "items": {"type": "string", "enum": ["co", "us", "us-wy", "es", "mx", "br", "ca"]}, "description": "Add these countries' public holidays"}}}),
+    },
+    ToolDef {
         name: "open_link",
         description: "Open an otherwise:// deep link (from a card or a Today event) in its app on the user's screen.",
         write: false,
@@ -168,6 +174,7 @@ fn run(hub: &Hub, name: &str, args: &Value) -> Result<Value, String> {
             let errors: Vec<Value> = merged.errors.iter().map(|(f, e)| json!({"file": f, "error": e})).collect();
             Ok(json!({"today": chrono::Local::now().date_naive().to_string(), "events": events, "errors": errors}))
         }
+        "calendar_events" => calendar_events(hub, args),
         "open_link" => {
             let url = s(args, "url").ok_or("url is required")?;
             let link = Link::parse(url).map_err(|e| e.to_string())?;
@@ -179,4 +186,50 @@ fn run(hub: &Hub, name: &str, args: &Value) -> Result<Value, String> {
         }
         _ => Err(format!("unknown tool {name:?}")),
     }
+}
+
+/// Longest range `calendar_events` expands in one call.
+const MAX_RANGE_DAYS: i64 = 400;
+
+fn calendar_events(hub: &Hub, args: &Value) -> Result<Value, String> {
+    use otherwise_link::events::{self, HOLIDAYS_APP};
+    let day = |k: &str| -> Result<Option<chrono::NaiveDate>, String> {
+        s(args, k).map(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").map_err(|_| format!("{k} must be YYYY-MM-DD, got {v:?}"))).transpose()
+    };
+    let from = day("from")?.unwrap_or_else(|| chrono::Local::now().date_naive());
+    let to = day("to")?.unwrap_or(from + chrono::Duration::days(6));
+    if to < from {
+        return Err("to is before from".into());
+    }
+    if (to - from).num_days() > MAX_RANGE_DAYS {
+        return Err(format!("at most {MAX_RANGE_DAYS} days per call"));
+    }
+    let list = |k: &str| -> Vec<String> { args.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default() };
+    let apps = list("apps");
+    let mut countries = Vec::new();
+    for c in list("holidays") {
+        countries.push(otherwise_link::holidays::Country::from_id(&c).ok_or(format!("unknown holiday country {c:?}"))?);
+    }
+    let merged = events::read(&hub.cfg.root, from, to);
+    let mut occ: Vec<events::Occurrence> = merged.occurrences.into_iter().filter(|o| apps.is_empty() || apps.contains(&o.event.app)).collect();
+    if !countries.is_empty() {
+        occ.extend(events::expand_all(&events::holiday_events(&countries, from, to), from, to, &chrono::Local));
+        events::sort(&mut occ, &chrono::Local);
+    }
+    let out: Vec<Value> = occ
+        .iter()
+        .map(|o| o.redacted("busy"))
+        .map(|o| {
+            let app_name = if o.event.app == HOLIDAYS_APP { None } else { Some(otherwise_link::apps::display_name(&o.event.app)) };
+            json!({
+                "app": o.event.app, "appName": app_name, "id": o.event.id, "title": o.event.title, "kind": o.event.kind, "status": o.event.status,
+                "allDay": o.all_day(), "start": o.start.to_string_value(), "end": o.end.to_string_value(),
+                "firstDay": o.first_day.to_string(), "lastDay": o.last_day.to_string(),
+                "body": o.event.body, "location": o.event.location, "category": o.event.category,
+                "link": o.event.link, "entities": o.event.entities, "busyOnly": o.event.busy_only,
+            })
+        })
+        .collect();
+    let errors: Vec<Value> = merged.errors.iter().map(|(a, e)| json!({"app": a, "error": e})).collect();
+    Ok(json!({"from": from.to_string(), "to": to.to_string(), "today": chrono::Local::now().date_naive().to_string(), "events": out, "errors": errors}))
 }

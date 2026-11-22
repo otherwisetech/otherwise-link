@@ -148,7 +148,7 @@ impl Hub {
         let apps: Vec<String> = self.slots.iter().filter(|s| !s.tools.is_empty()).map(|s| format!("{} ({}.*)", s.spec.name, s.spec.app)).collect();
         let mode = if self.offered_writes() { "Write tools are enabled; every write is recorded by the app that makes it." } else { "Read-only: write tools are off (the user can enable them in Otherwise Apps → Hub)." };
         let apps = if apps.is_empty() { "No app MCP servers were found.".to_string() } else { format!("App tools: {}.", apps.join(", ")) };
-        format!("Otherwise Technologies' desktop apps in one place. {apps} Own tools: entities_* (the shared people / companies / vehicles / properties / devices / sites registry, if the user turned it on), today (what needs attention across apps), open_link (otherwise:// deep links). {mode}")
+        format!("Otherwise Technologies' desktop apps in one place. {apps} Own tools: entities_* (the shared people / companies / vehicles / properties / devices / sites registry, if the user turned it on), today (what needs attention across apps), calendar_events (the user's calendar across apps for a date range, with holidays), open_link (otherwise:// deep links). {mode}")
     }
 
     /// One JSON-RPC message in, its response out (None for notifications).
