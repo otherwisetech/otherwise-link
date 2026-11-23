@@ -6,7 +6,7 @@ optional and independent: do the ones that make sense for the app.
 
 ```toml
 # the crate that has the logic (core / cli), not only the GPUI app
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.1" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.2" }
 ```
 
 Rules that carry over from the apps' CLAUDE.md: shared features are **opt-in or read-only by
@@ -14,7 +14,9 @@ default**, nothing leaves the computer, tests use temp dirs (`Root::at(tmp)`,
 `Locations { … }`), never the real shared folder. Keep rusqlite at 0.37 (same
 `libsqlite3-sys` as otherwise-link) or the build won't link. Make the app discoverable:
 either add its id to `apps::KNOWN` in otherwise-link (and tag a new version), or — no release
-needed — ship an `otherwise-app.json` in the bundle / install folder (SPEC §7.1).
+needed — ship an `otherwise-app.json` in the bundle / install folder (SPEC §7.1). An app
+already in `apps::KNOWN` can ship the file too: it fills only the fields its entry leaves
+empty (`cli`, `mcpArgs`, `mcpWriteArg`, `capabilities`), never the ones the table sets.
 
 ## 1. Deep links: register `otherwise-<id>://` and open links
 
@@ -139,7 +141,8 @@ loop {
 3. Ship the CLI where discovery finds it: inside the bundle (`Contents/MacOS/<cli>`), next to
    the GUI in the Windows / Linux folder, or on PATH; the name must be in the app's `cli` list
    in `apps::KNOWN` (and `Capability::Mcp` set, with `mcp_args: ["mcp"]`,
-   `mcp_write_arg: Some("--allow-writes")`).
+   `mcp_write_arg: Some("--allow-writes")`) or in its `otherwise-app.json`. One binary can be
+   both GUI and CLI (expense me: `cli: ["expense-me"]`, same as `binary`).
 4. Tool names: plain `snake_case` without the app prefix (the hub adds `vigia.`). Return
    `structuredContent` plus a text copy, `isError: true` for tool failures.
 5. Check: `otherwise-hub list` shows the app and its tool count; in Claude Code
