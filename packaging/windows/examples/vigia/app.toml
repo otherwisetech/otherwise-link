@@ -1,0 +1,23 @@
+# Vigía: copy to vigia-rs/packaging/windows/app.toml. Paths are relative to this file.
+[app]
+id = "otherwise-vigia"
+artifact = "vigia"
+name = "Vigía"
+description = "Never miss a renewal"
+exe = "vigia-app.exe"
+version_from = "../../Cargo.toml"
+icon = "../../crates/app/assets/logo/AppIcon.ico"
+license = ["../../LICENSE-MIT", "../../LICENSE-APACHE"]
+
+[files]
+include = ["vigia-app.exe", "vigia.exe", "README.md"]
+
+# The app also registers this itself at start-up (otherwise_link::register); the installer
+# does it up front with the same values, and removes it on uninstall if it still points here.
+[[protocols]]
+scheme = "otherwise-vigia"
+description = "Vigía"
+
+# For the Otherwise Helper era: a background entry at sign-in, off unless the user ticks it.
+[autostart]
+enabled = false

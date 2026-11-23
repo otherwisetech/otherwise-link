@@ -1,0 +1,24 @@
+# expense: copy to expense-rs/packaging/windows/app.toml. Paths are relative to this file.
+[app]
+id = "otherwise-expense"          # registry key (Apps & features, Run): never change it once shipped
+artifact = "expense"              # expense-<version>-windows-x86_64-setup.exe
+name = "expense"                  # Start menu, folder (%LOCALAPPDATA%\Programs\expense), Apps & features
+description = "Receipt organizer"
+exe = "expense.exe"               # in the payload (the release zip)
+version_from = "../../Cargo.toml" # [workspace.package] version; the release job passes --version
+icon = "../../crates/app/assets/logo/AppIcon.ico"
+license = "../../LICENSE"
+
+[files]
+# From the payload. The .reg files are replaced by [[context_menu]] below.
+include = ["expense.exe", "README.md"]
+
+[shortcuts]
+desktop_default = true
+
+# Replaces add-to-expense.reg / remove-add-to-expense.reg: Explorer right-click on files and
+# folders -> "Add to expense" (Windows 11: under "Show more options").
+[[context_menu]]
+id = "AddToExpense"
+targets = ["files", "folders"]
+label = { en = "Add to expense", es = "Añadir a expense", pt = "Adicionar ao expense", fr = "Ajouter à expense" }
