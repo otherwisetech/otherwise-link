@@ -415,6 +415,50 @@ impl Report {
     }
 }
 
+/// The lease's lock target, `<root>/<app>/background` (file `background.lock.json`).
+pub const LEASE: &str = "background";
+/// The helper's id in lease files.
+pub const LEASE_APP: &str = "otherwise-helper";
+
+pub fn lease_target(root: &Root, app: &str) -> PathBuf {
+    root.app_dir(app).join(LEASE)
+}
+
+/// Who runs `app`'s background jobs for this data root. With the root in a synced folder used
+/// from two computers, only the lease holder runs jobs and drains the outbox; the other one
+/// waits. The lease is a [`crate::lock`] of [`crate::lock::Scope::Computer`] (every process on
+/// the holder's computer shares it, so a helper restart keeps it) refreshed by
+/// [`take_lease`] at most every [`crate::lock::HEARTBEAT_EVERY`]; a computer that stops
+/// (asleep, gone) loses it after [`crate::lock::STALE_AFTER`].
+#[derive(Debug)]
+pub enum Lease {
+    Held(crate::lock::Lock),
+    /// Another computer runs them (its name).
+    Elsewhere(String),
+    /// The lease file couldn't be written (read-only root, sync trouble): don't run.
+    Unavailable,
+}
+
+impl Lease {
+    pub fn held(&self) -> bool {
+        matches!(self, Lease::Held(_))
+    }
+}
+
+/// Takes or refreshes the lease of `app` for this computer.
+pub fn take_lease(root: &Root, app: &str) -> Lease {
+    take_lease_as(root, app, crate::lock::Me::current(), crate::lock::now())
+}
+
+pub fn take_lease_as(root: &Root, app: &str, me: crate::lock::Me, now: i64) -> Lease {
+    use crate::lock::{Holder, Lock, Scope};
+    match Lock::acquire_as(&lease_target(root, app), LEASE_APP, Scope::Computer, me, now, |_| true) {
+        Ok(l) => Lease::Held(l),
+        Err(Holder::Elsewhere(i)) => Lease::Elsewhere(i.host),
+        Err(_) => Lease::Unavailable,
+    }
+}
+
 /// Is this process a job run by the helper (and which)?
 pub fn current_job() -> Option<String> {
     std::env::var(ENV_JOB).ok().filter(|s| valid_job_id(s))

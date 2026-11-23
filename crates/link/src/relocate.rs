@@ -133,7 +133,10 @@ fn walk_size(p: &Path, bytes: &mut u64, files: &mut usize, locks: &mut Vec<PathB
         if t.is_dir() {
             walk_size(&e.path(), bytes, files, locks);
         } else if let Some(target) = name.strip_suffix(lock::SUFFIX) {
-            locks.push(p.join(target));
+            // a background lease is no open file: another computer's helper mustn't block a move
+            if target != crate::background::LEASE {
+                locks.push(p.join(target));
+            }
         } else if !storage::skipped_in_copy(&name) {
             *bytes += e.metadata().map(|m| m.len()).unwrap_or(0);
             *files += 1;
@@ -150,6 +153,12 @@ fn in_use(targets: &[PathBuf]) -> Option<lock::LockInfo> {
 
 /// What a move from `from` to `to` would carry, and what stands in the way.
 pub fn plan(from: &Path, to: &Path) -> Plan {
+    plan_excluding(from, to, &[crate::paths::device_dir()])
+}
+
+/// [`plan`], leaving out `local` folders (this computer's own, should one sit inside the root)
+/// and [`crate::paths::DEVICE_LOCAL_IN_ROOT`].
+pub fn plan_excluding(from: &Path, to: &Path, local: &[PathBuf]) -> Plan {
     let mut items = Vec::new();
     let mut entries: Vec<_> = std::fs::read_dir(from).into_iter().flatten().flatten().collect();
     entries.sort_by_key(|e| e.file_name());
@@ -160,6 +169,9 @@ pub fn plan(from: &Path, to: &Path) -> Plan {
             continue;
         }
         let p = e.path();
+        if crate::paths::DEVICE_LOCAL_IN_ROOT.contains(&name.as_str()) || local.iter().any(|l| same_path(l, &p) || l.starts_with(&p)) {
+            continue;
+        }
         let (mut bytes, mut files, mut locks) = (0, 0, Vec::new());
         let kind = if t.is_dir() {
             walk_size(&p, &mut bytes, &mut files, &mut locks);
@@ -197,7 +209,7 @@ pub fn relocate(home: &Home, to: &Path, transfer: Transfer) -> Result<Report, Er
         home.set_pointer(to)?;
         return Ok(Report { from, to: to.to_path_buf(), transfer, items: Vec::new(), left_behind: Vec::new() });
     }
-    let p = plan(&from, to);
+    let p = plan_excluding(&from, to, std::slice::from_ref(&home.device));
     if let Some(i) = p.items.iter().find(|i| to.starts_with(from.join(&i.name))) {
         return Err(Error::Inside(i.name.clone()));
     }

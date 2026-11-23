@@ -6,7 +6,7 @@ optional and independent: do the ones that make sense for the app.
 
 ```toml
 # the crate that has the logic (core / cli), not only the GPUI app
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.4.0" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.0" }
 ```
 
 Rules that carry over from the apps' CLAUDE.md: shared features are **opt-in or read-only by
