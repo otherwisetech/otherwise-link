@@ -161,9 +161,7 @@ fn linux_install_folders() {
     let loc = Locations { os: Os::Linux, mac_dirs: vec![], roots: vec![root], path: vec![] };
     let reg = background::scan(&loc);
     assert_eq!(reg.len(), 1);
-    if cfg!(unix) {
-        assert_eq!(background::plan(&reg[0], "mail", &loc).unwrap().program, dir.join("vigia"));
-    }
+    assert_eq!(background::plan(&reg[0], "mail", &loc).unwrap().program, dir.join("vigia"));
     // a CLI on PATH alone has no install folder: no background jobs
     let bin = t.path().join("bin");
     fs::create_dir_all(&bin).unwrap();
@@ -193,4 +191,25 @@ fn outbox_roundtrip() {
     assert_eq!(got[0].key(), "expense/bill-42");
     assert!(!background::pending(&root, "expense"), "drained, junk and stale ones removed");
     assert!(background::drain(&root, "vigia", now).is_empty());
+}
+
+#[test]
+fn windows_install_folders_run_exe_files_only() {
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path().join("Programs/Otherwise");
+    let dir = root.join("vigia");
+    fs::create_dir_all(&dir).unwrap();
+    for b in ["vigia-app.exe", "vigia.exe"] {
+        fs::write(dir.join(b), "").unwrap();
+    }
+    let mut m = manifest("vigia");
+    m.jobs[0].exe = Some("vigia".into());
+    m.jobs[1].exe = Some("vigia.exe".into());
+    fs::write(dir.join(background::MANIFEST), m.to_json()).unwrap();
+    let loc = Locations { os: Os::Windows, mac_dirs: vec![], roots: vec![root], path: vec![] };
+    let reg = background::scan(&loc).remove(0);
+    assert_eq!(background::plan(&reg, "mail", &loc).unwrap().program, dir.join("vigia.exe"));
+    assert_eq!(background::plan(&reg, "bills", &loc).unwrap().program, dir.join("vigia.exe"));
+    fs::remove_file(dir.join("vigia.exe")).unwrap();
+    assert!(matches!(background::plan(&reg, "mail", &loc), Err(NotRunnable::BadExecutable(_))));
 }
