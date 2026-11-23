@@ -11,7 +11,7 @@ macOS, Windows and Linux.
 
 | Crate | What |
 |-------|------|
-| [`otherwise-link`](crates/link) | Library: `link`, `open`, `register`, `apps`, `entity`, `tax`, `registry`, `today`, `events`, `ics`, `holidays`, `settings`, `paths` |
+| [`otherwise-link`](crates/link) | Library: `link`, `open`, `register`, `apps`, `entity`, `tax`, `registry`, `today`, `events`, `ics`, `holidays`, `settings`, `paths`, `background` |
 | [`otherwise-mcp-hub`](crates/hub) | Library + `otherwise-hub` binary: a stdio MCP server proxying every installed app's MCP tools (`expense.*`, `vigia.*`, `nodo.*`) plus `entities_*`, `today`, `calendar_events` and `open_link` |
 
 - **Spec**: [docs/SPEC.md](docs/SPEC.md) (link syntax, card JSON, `entities.db`, Today files,
@@ -20,7 +20,7 @@ macOS, Windows and Linux.
 
 ```toml
 [dependencies]
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.3.0" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.4.0" }
 ```
 
 ```rust
