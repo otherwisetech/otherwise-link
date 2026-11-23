@@ -139,3 +139,76 @@ fn new_apps_are_known() {
     assert!(h.has(Capability::Mcp) && h.has(Capability::Calendar));
     assert_eq!(h.cli, ["mi-huerta-cli"]);
 }
+
+#[test]
+fn expense_me_matches_its_own_manifest() {
+    let k = apps::known("expense-me").unwrap().spec();
+    assert_eq!((k.cli.as_slice(), k.mcp_args.as_slice(), k.mcp_write_arg.as_deref()), (&["expense-me".to_string()][..], &["mcp".to_string()][..], Some("--allow-writes")));
+    assert_eq!(k.capabilities, [Capability::DeepLinks, Capability::Mcp]);
+    assert_eq!(k.scheme().as_deref(), Some("otherwise-expense-me"));
+    // what expense me 0.1 ships in `Contents/Resources/otherwise-app.json`
+    let t = tempfile::tempdir().unwrap();
+    let f = t.path().join(apps::APP_MANIFEST);
+    fs::write(&f, r#"{"schema": 1, "id": "expense-me", "name": "expense me",
+ "bundleId": "com.otherwisetech.expense-me", "binary": "expense-me",
+ "cli": ["expense-me"], "mcpArgs": ["mcp"], "mcpWriteArg": "--allow-writes",
+ "openSource": false, "capabilities": ["deepLinks", "mcp"]}"#).unwrap();
+    assert_eq!(apps::read_app_manifest(&f, "expense me", "expense-me").unwrap(), k);
+
+    // found with its MCP server: the GUI binary is the CLI
+    let sys = t.path().join("Applications");
+    mac_app(&sys, "expense me", "com.otherwisetech.expense-me", "0.1.0", &["expense-me"]);
+    let loc = Locations { os: Os::Macos, mac_dirs: vec![sys.clone()], roots: vec![], path: vec![] };
+    let found = apps::discover(&loc);
+    let (s, inst) = found.iter().find(|(s, _)| s.id == "expense-me").unwrap();
+    assert!(s.has(Capability::Mcp));
+    assert_eq!(inst.cli.as_deref(), Some(sys.join("expense me.app/Contents/MacOS/expense-me").as_path()));
+}
+
+#[test]
+fn known_entries_take_only_their_gaps_from_the_install() {
+    let t = tempfile::tempdir().unwrap();
+    let sys = t.path().join("Applications");
+    let put = |name: &str, plist_id: &str, bins: &[&str], json: &str| {
+        mac_app(&sys, name, plist_id, "1.0.0", bins);
+        let res = sys.join(format!("{name}.app/Contents/Resources"));
+        fs::create_dir_all(&res).unwrap();
+        fs::write(res.join(apps::APP_MANIFEST), json).unwrap();
+    };
+    // Surco's entry is empty: cli, MCP and capabilities come from its manifest; name, binary,
+    // bundle names and openSource never do
+    put("Surco", "com.otherwisetech.surco", &["surco"], r#"{"schema":1,"id":"surco","name":"Evil","bundleId":"com.otherwisetech.surco","binary":"evil","cli":["surco"],"mcpArgs":["mcp"],"mcpWriteArg":"--allow-writes","openSource":true,"capabilities":["deepLinks","mcp"]}"#);
+    // Brújula sets capabilities: kept as they are; its empty cli is filled
+    put("Brújula", "com.otherwisetech.brujula", &["brujula"], r#"{"schema":1,"id":"brujula","name":"Brújula","bundleId":"com.otherwisetech.brujula","binary":"brujula","cli":["brujula"],"mcpArgs":["mcp"],"capabilities":["mcp","today"]}"#);
+    // a manifest for another id, or a bundle that isn't the known one, fills nothing
+    put("Helio", "com.otherwisetech.helio", &["helio"], r#"{"schema":1,"id":"brujula","name":"x","bundleId":"com.otherwisetech.helio","binary":"helio","cli":["helio"]}"#);
+    put("rama", "com.otherwisetech.rama-fake", &["rama"], r#"{"schema":1,"id":"rama","name":"rama","bundleId":"com.otherwisetech.rama-fake","binary":"rama","cli":["rama"]}"#);
+    put("mosaico", "io.github.otherwisetech.mosaico", &["mosaico"], r#"{"schema":1,"id":"mosaico","name":"mosaico","bundleId":"com.otherwisetech.other","binary":"mosaico","cli":["mosaico"]}"#);
+    let loc = Locations { os: Os::Macos, mac_dirs: vec![sys.clone()], roots: vec![], path: vec![] };
+    let specs = apps::all_specs(&loc);
+    let get = |id: &str| specs.iter().find(|s| s.id == id).unwrap().clone();
+
+    let s = get("surco");
+    let k = apps::known("surco").unwrap();
+    assert_eq!((s.name.as_str(), s.binary.as_str(), s.app_name.as_str(), s.open_source), (k.name, k.binary, k.app_name, k.open_source));
+    assert_eq!((s.cli, s.mcp_args, s.mcp_write_arg.as_deref()), (vec!["surco".to_string()], vec!["mcp".to_string()], Some("--allow-writes")));
+    assert_eq!(s.capabilities, [Capability::DeepLinks, Capability::Mcp]);
+
+    let b = get("brujula");
+    assert_eq!(b.cli, ["brujula"]);
+    assert_eq!(b.capabilities, [Capability::DeepLinks, Capability::Calendar]);
+    for id in ["helio", "rama", "mosaico"] {
+        assert_eq!(get(id), apps::known(id).unwrap().spec(), "{id}");
+    }
+    // the table entries that set everything are unchanged, and no id appears twice
+    assert_eq!(get("expense"), apps::known("expense").unwrap().spec());
+    assert_eq!(specs.iter().filter(|s| s.id == "surco").count(), 1);
+
+    // Linux: the manifest next to the known binary in its install folder
+    let opt = t.path().join("opt/otherwise");
+    fs::create_dir_all(opt.join("surco")).unwrap();
+    fs::write(opt.join("surco/surco"), "").unwrap();
+    fs::write(opt.join("surco").join(apps::APP_MANIFEST), r#"{"schema":1,"id":"surco","name":"Surco","bundleId":"com.otherwisetech.surco","binary":"surco","capabilities":["deepLinks"]}"#).unwrap();
+    let loc = Locations { os: Os::Linux, mac_dirs: vec![], roots: vec![opt], path: vec![] };
+    assert_eq!(apps::known_spec_at(apps::known("surco").unwrap(), &loc).capabilities, [Capability::DeepLinks]);
+}

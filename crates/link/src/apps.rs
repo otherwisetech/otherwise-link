@@ -143,7 +143,8 @@ pub static KNOWN: &[KnownApp] = &[
     KnownApp { id: "brujula", name: "Brújula", bundle_id: "com.otherwisetech.brujula", app_name: "Brújula", install_name: "brujula", binary: "brujula", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: false, capabilities: &[DeepLinks, Calendar] },
     KnownApp { id: "helio", name: "Helio", bundle_id: "com.otherwisetech.helio", app_name: "Helio", install_name: "helio", binary: "helio", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: false, capabilities: &[DeepLinks, Calendar] },
     KnownApp { id: "mi-huerta", name: "Mi Huerta", bundle_id: "com.otherwisetech.mi-huerta", app_name: "Mi Huerta", install_name: "mi-huerta", binary: "mi-huerta", cli: &["mi-huerta-cli"], mcp_args: &["mcp"], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Mcp, Calendar] },
-    KnownApp { id: "expense-me", name: "expense me", bundle_id: "com.otherwisetech.expense-me", app_name: "expense me", install_name: "expense-me", binary: "expense-me", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: false, capabilities: &[] },
+    // one binary: the GUI also answers `mcp [--book <folder>] [--propose | --allow-writes]`
+    KnownApp { id: "expense-me", name: "expense me", bundle_id: "com.otherwisetech.expense-me", app_name: "expense me", install_name: "expense-me", binary: "expense-me", cli: &["expense-me"], mcp_args: &["mcp"], mcp_write_arg: Some("--allow-writes"), open_source: false, capabilities: &[DeepLinks, Mcp] },
     // the Surco suite's launcher; its tools (com.otherwisetech.surco.<tool>) describe themselves
     // with an `otherwise-app.json` (APP_MANIFEST)
     KnownApp { id: "surco", name: "Surco", bundle_id: "com.otherwisetech.surco", app_name: "Surco", install_name: "surco", binary: "surco", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: false, capabilities: &[] },
@@ -420,9 +421,48 @@ pub fn manifest_specs(loc: &Locations) -> Vec<AppSpec> {
     out
 }
 
-/// [`KNOWN`] plus [`manifest_specs`].
+/// The manifest a built-in app's own install ships, if it is that app's: the bundle
+/// `<appName>.app` (whose `CFBundleIdentifier` must be the known bundle id) / the folder
+/// `<installName>` holding its binary, first install in lookup order, with the same id and
+/// bundle id as the [`KNOWN`] entry.
+fn known_install_manifest(k: &KnownApp, loc: &Locations) -> Option<AppSpec> {
+    let m = match loc.os {
+        Os::Macos => loc.mac_dirs.iter().map(|d| d.join(format!("{}.app", k.app_name))).find(|p| {
+            p.join("Contents").is_dir() && read_info_plist(p).and_then(|x| plist_string(&x, "CFBundleIdentifier")).is_some_and(|b| b == k.bundle_id)
+        }).and_then(|p| read_app_manifest(&p.join("Contents").join("Resources").join(APP_MANIFEST), k.app_name, k.install_name)),
+        Os::Windows | Os::Linux => loc.roots.iter().map(|r| r.join(k.install_name)).find(|p| p.join(loc.exe_name(k.binary)).is_file())
+            .and_then(|p| read_app_manifest(&p.join(APP_MANIFEST), k.app_name, k.install_name)),
+    }?;
+    (m.id == k.id && m.bundle_id == k.bundle_id).then_some(m)
+}
+
+/// `k`'s spec, with what the entry leaves empty (`cli`, `mcpArgs`, `mcpWriteArg`,
+/// `capabilities`) taken from the [`APP_MANIFEST`] in its install (SPEC §7.1). A value the
+/// table sets is never replaced, and nothing else (name, bundle id, binary…) is read.
+pub fn known_spec_at(k: &KnownApp, loc: &Locations) -> AppSpec {
+    let mut s = k.spec();
+    if s.cli.is_empty() || s.mcp_args.is_empty() || s.mcp_write_arg.is_none() || s.capabilities.is_empty() {
+        if let Some(m) = known_install_manifest(k, loc) {
+            if s.cli.is_empty() {
+                s.cli = m.cli;
+            }
+            if s.mcp_args.is_empty() {
+                s.mcp_args = m.mcp_args;
+            }
+            if s.mcp_write_arg.is_none() {
+                s.mcp_write_arg = m.mcp_write_arg;
+            }
+            if s.capabilities.is_empty() {
+                s.capabilities = m.capabilities;
+            }
+        }
+    }
+    s
+}
+
+/// [`KNOWN`] (gaps filled from their installs, [`known_spec_at`]) plus [`manifest_specs`].
 pub fn all_specs(loc: &Locations) -> Vec<AppSpec> {
-    let mut v = known_specs();
+    let mut v: Vec<AppSpec> = KNOWN.iter().map(|k| known_spec_at(k, loc)).collect();
     v.extend(manifest_specs(loc));
     v
 }

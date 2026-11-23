@@ -354,6 +354,12 @@ At most 16 KiB:
   names. On macOS the bundle's `CFBundleIdentifier` MUST equal `bundleId`.
 - The bundle name (without `.app`) or the folder name becomes `appName` / `installName`.
 - Ids of the built-in table can't be redefined; the first install of an id wins.
+- A built-in app's own install MAY ship the file too (library 0.5.2): when its `id` and
+  `bundleId` equal the table entry's, and it sits in that entry's bundle (`<appName>.app`,
+  `CFBundleIdentifier` equal) or folder (`<installName>`, next to its binary), it fills only
+  what the entry leaves empty: `cli`, `mcpArgs`, `mcpWriteArg`, `capabilities`. Values the
+  table sets are never replaced; name, bundle id, binary and `openSource` always come from the
+  table (`apps::known_spec_at`).
 - Unknown capabilities and fields are ignored. Discovery (`apps::discover`) and background
   jobs (§11, `background::scan`) both use the table plus these (`apps::all_specs`).
 
