@@ -5,7 +5,7 @@ rama, mosaico, expense, Vigía, Nodo, Otherwise Apps…). Pure Rust, **no GPUI a
 open-source and closed-source apps can both depend on it. Apps depend on it by git tag:
 
 ```toml
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.0" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.1" }
 ```
 
 ## Layout
@@ -14,7 +14,7 @@ otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag 
 crates/link  otherwise-link (lib `otherwise_link`):
              link.rs (otherwise:// parse / build), open.rs (open_link, system opener),
              register.rs (CFBundleURLTypes / .desktop MimeType / HKCU registry snippets + runners),
-             apps.rs (KNOWN app table, Locations, detect / discover, Info.plist + install marker),
+             apps.rs (KNOWN app table, otherwise-app.json self-descriptions, Locations, detect / discover, Info.plist + install marker),
              entity.rs (cards: kinds, normalize, natural keys, absorb / apply), tax.rs (tax ids +
              check digits), registry.rs (SQLite entities.db: migrations, CRUD, merge, change log,
              cursors), today.rs (per-app feed files, merge, expiry, dismissals), events.rs

@@ -6,14 +6,15 @@ optional and independent: do the ones that make sense for the app.
 
 ```toml
 # the crate that has the logic (core / cli), not only the GPUI app
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.0" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.1" }
 ```
 
 Rules that carry over from the apps' CLAUDE.md: shared features are **opt-in or read-only by
 default**, nothing leaves the computer, tests use temp dirs (`Root::at(tmp)`,
 `Locations { … }`), never the real shared folder. Keep rusqlite at 0.37 (same
-`libsqlite3-sys` as otherwise-link) or the build won't link. Add the app's id to
-`apps::KNOWN` in otherwise-link if it isn't there (and tag a new version).
+`libsqlite3-sys` as otherwise-link) or the build won't link. Make the app discoverable:
+either add its id to `apps::KNOWN` in otherwise-link (and tag a new version), or — no release
+needed — ship an `otherwise-app.json` in the bundle / install folder (SPEC §7.1).
 
 ## 1. Deep links: register `otherwise-<id>://` and open links
 

@@ -276,3 +276,23 @@ fn another_computers_lease_doesnt_block_moving_the_root_and_device_state_stays()
     assert!(!to.join("expense").join("background.lock.json").exists(), "locks never move");
     assert!(!home.device.starts_with(root.dir()));
 }
+
+#[test]
+fn self_described_apps_have_jobs_too() {
+    let t = tempfile::tempdir().unwrap();
+    let loc = mac(t.path());
+    let app = loc.mac_dirs[0].join("Surco Riego.app");
+    let c = app.join("Contents");
+    fs::create_dir_all(c.join("MacOS")).unwrap();
+    fs::create_dir_all(c.join("Resources")).unwrap();
+    fs::write(c.join("Info.plist"), "<plist><dict><key>CFBundleIdentifier</key><string>com.otherwisetech.surco.riego</string></dict></plist>").unwrap();
+    fs::write(c.join("MacOS/surco-riego"), "#!/bin/sh\n").unwrap();
+    make_exec(&c.join("MacOS/surco-riego"));
+    fs::write(c.join("Resources").join(apps::APP_MANIFEST), r#"{"schema":1,"id":"surco-riego","name":"Surco Riego","bundleId":"com.otherwisetech.surco.riego","binary":"surco-riego"}"#).unwrap();
+    let jobs = Manifest { schema: 1, app: "surco-riego".into(), jobs: vec![Job::every("forecast", Label::en("k", "Forecast"), "6h", &["background", "run", "forecast"])] };
+    fs::write(c.join("Resources").join(background::MANIFEST), jobs.to_json()).unwrap();
+    let found = background::scan(&loc);
+    assert_eq!(found.iter().map(|r| r.spec.id.as_str()).collect::<Vec<_>>(), ["surco-riego"]);
+    let plan = background::plan(&found[0], "forecast", &loc).unwrap();
+    assert!(plan.program.ends_with("Surco Riego.app/Contents/MacOS/surco-riego"));
+}

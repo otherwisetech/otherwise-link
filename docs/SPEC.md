@@ -335,6 +335,28 @@ written by the launcher next to the binary. The built-in table (`apps::KNOWN`) l
 bundle id, bundle / folder names, binaries, MCP arguments and capabilities (`deepLinks`,
 `today`, `entities`, `mcp`, `calendar`).
 
+### 7.1 Apps that describe themselves (library 0.5.1)
+
+An app not in the built-in table is found by a file in its install, so a new app needs no
+otherwise-link release: `Contents/Resources/otherwise-app.json` in a macOS bundle (any
+`*.app` in the folders above), `<root>/<folder>/otherwise-app.json` on Windows / Linux.
+At most 16 KiB:
+
+```json
+{"schema": 1, "id": "surco-riego", "name": "Surco Riego",
+ "bundleId": "com.otherwisetech.surco.riego", "binary": "surco-riego",
+ "cli": ["surco-riego"], "mcpArgs": ["mcp"], "mcpWriteArg": "--allow-writes",
+ "openSource": false, "capabilities": ["deepLinks", "mcp", "calendar"]}
+```
+
+- `schema` MUST be 1 (others are ignored); `id` a valid app id (§1); `bundleId` MUST start
+  with `com.otherwisetech.` or `io.github.otherwisetech.`; `binary` and `cli` are plain file
+  names. On macOS the bundle's `CFBundleIdentifier` MUST equal `bundleId`.
+- The bundle name (without `.app`) or the folder name becomes `appName` / `installName`.
+- Ids of the built-in table can't be redefined; the first install of an id wins.
+- Unknown capabilities and fields are ignored. Discovery (`apps::discover`) and background
+  jobs (§11, `background::scan`) both use the table plus these (`apps::all_specs`).
+
 ## 8. MCP
 
 An app exposing MCP runs a stdio server (JSON-RPC 2.0, one message per line) as

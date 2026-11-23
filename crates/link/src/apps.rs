@@ -19,7 +19,7 @@ use crate::link;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Capability {
     /// Registers `otherwise-<id>://` and opens [`crate::Link`]s.
@@ -142,6 +142,11 @@ pub static KNOWN: &[KnownApp] = &[
     KnownApp { id: "rama", name: "rama", bundle_id: "io.github.otherwisetech.rama", app_name: "rama", install_name: "rama", binary: "rama", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Today] },
     KnownApp { id: "brujula", name: "Brújula", bundle_id: "com.otherwisetech.brujula", app_name: "Brújula", install_name: "brujula", binary: "brujula", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: false, capabilities: &[DeepLinks, Calendar] },
     KnownApp { id: "helio", name: "Helio", bundle_id: "com.otherwisetech.helio", app_name: "Helio", install_name: "helio", binary: "helio", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: false, capabilities: &[DeepLinks, Calendar] },
+    KnownApp { id: "mi-huerta", name: "Mi Huerta", bundle_id: "com.otherwisetech.mi-huerta", app_name: "Mi Huerta", install_name: "mi-huerta", binary: "mi-huerta", cli: &["mi-huerta-cli"], mcp_args: &["mcp"], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Mcp, Calendar] },
+    KnownApp { id: "expense-me", name: "expense me", bundle_id: "com.otherwisetech.expense-me", app_name: "expense me", install_name: "expense-me", binary: "expense-me", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: false, capabilities: &[] },
+    // the Surco suite's launcher; its tools (com.otherwisetech.surco.<tool>) describe themselves
+    // with an `otherwise-app.json` (APP_MANIFEST)
+    KnownApp { id: "surco", name: "Surco", bundle_id: "com.otherwisetech.surco", app_name: "Surco", install_name: "surco", binary: "surco", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: false, capabilities: &[] },
 ];
 
 pub fn known(id: &str) -> Option<&'static KnownApp> {
@@ -317,9 +322,109 @@ pub fn detect(spec: &AppSpec, loc: &Locations) -> Option<Installed> {
     detect_install(spec, loc).or_else(|| find_cli(spec, None, loc).map(|cli| Installed { id: spec.id.clone(), path: None, executable: None, cli: Some(cli), version: None, bundle_id: None }))
 }
 
-/// Every known app that is installed here.
+/// Every known app, or app that describes itself, installed here.
 pub fn discover(loc: &Locations) -> Vec<(AppSpec, Installed)> {
-    known_specs().into_iter().filter_map(|s| detect(&s, loc).map(|i| (s, i))).collect()
+    all_specs(loc).into_iter().filter_map(|s| detect(&s, loc).map(|i| (s, i))).collect()
+}
+
+/// The self-description an app not in [`KNOWN`] ships in its install: `Contents/Resources/
+/// otherwise-app.json` in a macOS bundle, next to the binary on Windows / Linux (SPEC §7.1).
+pub const APP_MANIFEST: &str = "otherwise-app.json";
+pub const MAX_APP_MANIFEST: u64 = 16 << 10;
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppManifest {
+    schema: u32,
+    id: String,
+    name: String,
+    bundle_id: String,
+    binary: String,
+    #[serde(default)]
+    cli: Vec<String>,
+    #[serde(default)]
+    mcp_args: Vec<String>,
+    #[serde(default)]
+    mcp_write_arg: Option<String>,
+    #[serde(default)]
+    open_source: bool,
+    /// Unknown names are skipped (a newer app may declare more).
+    #[serde(default)]
+    capabilities: Vec<serde_json::Value>,
+}
+
+fn plain_name(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 64 && s != "." && s != ".." && !s.contains(['/', '\\', ':', '\0'])
+}
+
+fn ours(bundle_id: &str) -> bool {
+    bundle_id.starts_with("io.github.otherwisetech.") || bundle_id.starts_with("com.otherwisetech.")
+}
+
+/// The [`AppSpec`] in an app's `otherwise-app.json`, read from `file`, for the install named
+/// `app_name` (bundle name without `.app`) / `install_name` (folder). `None` if it is missing,
+/// too large, unreadable, of a newer schema or invalid.
+pub fn read_app_manifest(file: &Path, app_name: &str, install_name: &str) -> Option<AppSpec> {
+    let meta = std::fs::metadata(file).ok()?;
+    if !meta.is_file() || meta.len() > MAX_APP_MANIFEST {
+        return None;
+    }
+    let m: AppManifest = serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()?;
+    if m.schema != 1 || !link::valid_app_id(&m.id) || m.name.trim().is_empty() || !ours(&m.bundle_id) || !plain_name(&m.binary) || !m.cli.iter().all(|c| plain_name(c)) {
+        return None;
+    }
+    let capabilities = m.capabilities.iter().filter_map(|c| serde_json::from_value::<Capability>(c.clone()).ok()).collect();
+    Some(AppSpec { id: m.id, name: m.name, bundle_id: m.bundle_id, app_name: app_name.into(), install_name: install_name.into(), binary: m.binary, cli: m.cli, mcp_args: m.mcp_args, mcp_write_arg: m.mcp_write_arg, open_source: m.open_source, capabilities })
+}
+
+/// Apps installed here that describe themselves ([`APP_MANIFEST`]) and aren't in [`KNOWN`]. On
+/// macOS the bundle's `CFBundleIdentifier` must equal the manifest's bundle id. The first
+/// install of an id wins (lookup order of [`Locations`]).
+pub fn manifest_specs(loc: &Locations) -> Vec<AppSpec> {
+    let mut out: Vec<AppSpec> = Vec::new();
+    let add = |s: AppSpec, out: &mut Vec<AppSpec>| {
+        if known(&s.id).is_none() && !out.iter().any(|o| o.id == s.id) {
+            out.push(s);
+        }
+    };
+    let sorted = |dir: &Path| -> Vec<PathBuf> {
+        let mut v: Vec<PathBuf> = std::fs::read_dir(dir).map(|rd| rd.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+        v.sort();
+        v
+    };
+    match loc.os {
+        Os::Macos => {
+            for dir in &loc.mac_dirs {
+                for path in sorted(dir) {
+                    let Some(name) = path.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_suffix(".app")) else { continue };
+                    let file = path.join("Contents").join("Resources").join(APP_MANIFEST);
+                    let Some(spec) = read_app_manifest(&file, name, name) else { continue };
+                    let bundle = read_info_plist(&path).and_then(|p| plist_string(&p, "CFBundleIdentifier"));
+                    if bundle.as_deref() == Some(spec.bundle_id.as_str()) {
+                        add(spec, &mut out);
+                    }
+                }
+            }
+        }
+        Os::Windows | Os::Linux => {
+            for root in &loc.roots {
+                for path in sorted(root) {
+                    let Some(name) = path.file_name().and_then(|n| n.to_str()).map(str::to_string) else { continue };
+                    if let Some(spec) = read_app_manifest(&path.join(APP_MANIFEST), &name, &name) {
+                        add(spec, &mut out);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// [`KNOWN`] plus [`manifest_specs`].
+pub fn all_specs(loc: &Locations) -> Vec<AppSpec> {
+    let mut v = known_specs();
+    v.extend(manifest_specs(loc));
+    v
 }
 
 #[cfg(test)]
