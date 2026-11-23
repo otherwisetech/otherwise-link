@@ -20,7 +20,7 @@ macOS, Windows and Linux.
 
 ```toml
 [dependencies]
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.0" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.1" }
 ```
 
 ```rust

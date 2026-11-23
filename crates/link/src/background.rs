@@ -295,10 +295,11 @@ pub struct Registered {
     pub manifest: Manifest,
 }
 
-/// Every known app installed here (bundle / install folder, not PATH) that ships a manifest
+/// Every known or self-described app ([`crate::apps::all_specs`]) installed here (bundle /
+/// install folder, not PATH) that ships a manifest
 /// with at least one job. Apps without one, or with an unreadable one, have no jobs.
 pub fn scan(loc: &Locations) -> Vec<Registered> {
-    scan_specs(&crate::apps::known_specs(), loc)
+    scan_specs(&crate::apps::all_specs(loc), loc)
 }
 
 pub fn scan_specs(specs: &[AppSpec], loc: &Locations) -> Vec<Registered> {

@@ -86,3 +86,56 @@ fn system_locations_have_the_usual_places() {
     assert_eq!(linux.roots[0], home.join(".local/opt/otherwise"));
     assert!(!Locations::system().path.is_empty());
 }
+
+#[test]
+fn apps_describe_themselves_with_otherwise_app_json() {
+    let t = tempfile::tempdir().unwrap();
+    let sys = t.path().join("Applications");
+    fs::create_dir_all(&sys).unwrap();
+    let manifest = |id: &str, bundle: &str| format!(r#"{{"schema":1,"id":"{id}","name":"Surco Riego","bundleId":"{bundle}","binary":"surco-riego","cli":["surco-riego"],"mcpArgs":["mcp"],"capabilities":["deepLinks","mcp","somethingNewer"]}}"#);
+    let with_manifest = |name: &str, plist_id: &str, json: &str| {
+        mac_app(&sys, name, plist_id, "0.2.0", &["surco-riego"]);
+        let res = sys.join(format!("{name}.app/Contents/Resources"));
+        fs::create_dir_all(&res).unwrap();
+        fs::write(res.join(apps::APP_MANIFEST), json).unwrap();
+    };
+    with_manifest("Surco Riego", "com.otherwisetech.surco.riego", &manifest("surco-riego", "com.otherwisetech.surco.riego"));
+    // the bundle id in Info.plist must match the manifest's
+    with_manifest("Impostor", "com.example.impostor", &manifest("impostor", "com.otherwisetech.impostor"));
+    // not one of ours
+    with_manifest("Other", "com.example.other", &manifest("other", "com.example.other"));
+    // a known id can't be redefined
+    with_manifest("Fake expense", "com.otherwisetech.fake", &manifest("expense", "com.otherwisetech.fake"));
+    // newer schema, unreadable
+    with_manifest("Newer", "com.otherwisetech.newer", &manifest("newer", "com.otherwisetech.newer").replace("\"schema\":1", "\"schema\":2"));
+    with_manifest("Broken", "com.otherwisetech.broken", "{");
+    let loc = Locations { os: Os::Macos, mac_dirs: vec![sys.clone()], roots: vec![], path: vec![] };
+    let specs = apps::manifest_specs(&loc);
+    assert_eq!(specs.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["surco-riego"]);
+    let s = &specs[0];
+    assert_eq!((s.app_name.as_str(), s.binary.as_str()), ("Surco Riego", "surco-riego"));
+    assert_eq!(s.capabilities, [Capability::DeepLinks, Capability::Mcp], "unknown capabilities are skipped");
+    let found = apps::discover(&loc);
+    let (_, inst) = found.iter().find(|(s, _)| s.id == "surco-riego").unwrap();
+    assert_eq!(inst.version.as_deref(), Some("0.2.0"));
+    assert!(inst.cli.as_ref().unwrap().ends_with("Surco Riego.app/Contents/MacOS/surco-riego"));
+
+    // Linux: next to the binary, in the install folder
+    let opt = t.path().join("opt/otherwise");
+    fs::create_dir_all(opt.join("surco-abono")).unwrap();
+    fs::write(opt.join("surco-abono/surco-abono"), "").unwrap();
+    fs::write(opt.join("surco-abono").join(apps::APP_MANIFEST), r#"{"schema":1,"id":"surco-abono","name":"Surco Abono","bundleId":"com.otherwisetech.surco.abono","binary":"surco-abono","binary_extra":"ignored"}"#).unwrap();
+    let loc = Locations { os: Os::Linux, mac_dirs: vec![], roots: vec![opt], path: vec![] };
+    let found: Vec<String> = apps::discover(&loc).into_iter().map(|(s, _)| s.id).collect();
+    assert_eq!(found, ["surco-abono"]);
+}
+
+#[test]
+fn new_apps_are_known() {
+    for (id, bundle) in [("mi-huerta", "com.otherwisetech.mi-huerta"), ("expense-me", "com.otherwisetech.expense-me"), ("surco", "com.otherwisetech.surco")] {
+        assert_eq!(apps::known(id).unwrap().bundle_id, bundle);
+    }
+    let h = apps::known("mi-huerta").unwrap().spec();
+    assert!(h.has(Capability::Mcp) && h.has(Capability::Calendar));
+    assert_eq!(h.cli, ["mi-huerta-cli"]);
+}
