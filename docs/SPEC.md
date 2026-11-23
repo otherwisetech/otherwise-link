@@ -1,4 +1,4 @@
-# otherwise-link specification, version 1 (library 0.4)
+# otherwise-link specification, version 1 (library 0.5)
 
 Normative description of the formats Otherwise apps share. The Rust crate `otherwise-link`
 implements all of it; an app in another language can follow this document instead.
@@ -495,7 +495,24 @@ the helper's menu, never as a notification. The last stdout line may be a report
 
 `status` (at most 120 characters, in the user's language) is shown in the helper's menu.
 
-### 11.3 Notifications
+### 11.3 One computer per data root (library 0.5)
+
+A data root in a synced folder may be used from several computers, each with its own helper.
+Per app, only the computer holding the **lease** runs that app's jobs and drains its outbox:
+`<data root>/<app id>/background.lock.json`, a §2.2 lock with scope `computer` and app
+`otherwise-helper`, refreshed at most once a minute while the helper runs; another computer's
+lease older than 10 minutes is free to take. The others wait and show "running on <host>".
+The lease is not an open file: moving the root (§2.1) ignores it.
+
+What a helper remembers about its own runs (last runs, backoff, pause, shown notifications) is
+the computer's, never the data root's: `paths::device_dir()` —
+`~/Library/Application Support/com.otherwisetech.device/` (macOS),
+`%LOCALAPPDATA%\Otherwise\device\` (Windows), `$XDG_STATE_HOME/otherwise/` (Linux,
+default `~/.local/state/otherwise/`); `OTHERWISE_DEVICE_DIR` overrides it. It is never the
+pre-0.2 folder (§2.1) and never moves with the root; a `helper/` folder an Otherwise Apps 0.6.0
+helper left at the top of the root is device state too and is left out of a move.
+
+### 11.4 Notifications
 
 `<data root>/<app id>/outbox/<id>.json`, written by the app (atomically, as §5.1), one file per
 notification:
@@ -506,7 +523,7 @@ notification:
   "createdAt": "2026-11-23T08:00:00Z" }
 ```
 
-The helper drains the folder (reads, then removes each file) only for installed apps, drops
+The lease holder's helper (§11.3) drains the folder (reads, then removes each file) only for installed apps, drops
 notifications older than 24 hours, shows each `<app>/<id>` once (for 30 days), and opens
 `link` when one is clicked. Nothing is shown when `hub.json` `background.quiet` is on or the
 app is in `notificationsOff`; jobs of apps in `jobsOff` don't run.

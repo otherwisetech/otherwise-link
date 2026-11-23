@@ -213,3 +213,66 @@ fn windows_install_folders_run_exe_files_only() {
     fs::remove_file(dir.join("vigia.exe")).unwrap();
     assert!(matches!(background::plan(&reg, "mail", &loc), Err(NotRunnable::BadExecutable(_))));
 }
+
+#[test]
+fn one_computer_runs_an_apps_jobs_per_data_root() {
+    use otherwise_link::background::{Lease, take_lease_as};
+    use otherwise_link::lock::{Me, STALE_AFTER};
+    let t = tempfile::tempdir().unwrap();
+    let root = Root::at(t.path());
+    let mac_a = || Me { host: "Mac A".into(), pid: 100 };
+    let mac_b = || Me { host: "Mac B".into(), pid: 200 };
+    let t0 = 1_800_000_000;
+    assert!(take_lease_as(&root, "expense", mac_a(), t0).held());
+    // the other computer on the same synced root waits, and knows who runs them
+    match take_lease_as(&root, "expense", mac_b(), t0 + 30) {
+        Lease::Elsewhere(host) => assert_eq!(host, "Mac A"),
+        other => panic!("{other:?}"),
+    }
+    // other apps are independent
+    assert!(take_lease_as(&root, "vigia", mac_b(), t0 + 30).held());
+    // a restarted helper on the same computer keeps it (another pid)
+    assert!(take_lease_as(&root, "expense", Me { host: "Mac A".into(), pid: 101 }, t0 + 90).held());
+    // Mac A refreshes it…
+    assert!(take_lease_as(&root, "expense", mac_a(), t0 + 400).held());
+    assert!(!take_lease_as(&root, "expense", mac_b(), t0 + 400 + 300).held());
+    // …then goes away: the lease lapses and Mac B takes over
+    let later = t0 + 400 + STALE_AFTER.as_secs() as i64 + 1;
+    assert!(take_lease_as(&root, "expense", mac_b(), later).held());
+    assert!(!take_lease_as(&root, "expense", mac_a(), later + 10).held());
+    // the lease file is in the app's folder, next to its outbox
+    assert!(background::lease_target(&root, "expense").with_file_name("background.lock.json").exists());
+}
+
+#[test]
+fn another_computers_lease_doesnt_block_moving_the_root_and_device_state_stays() {
+    use otherwise_link::lock::Me;
+    use otherwise_link::paths::Home;
+    let t = tempfile::tempdir().unwrap();
+    let home = Home::at(t.path());
+    let root = Root::at(home.default_root());
+    fs::create_dir_all(root.app_dir("expense")).unwrap();
+    fs::write(root.app_dir("expense").join("data.txt"), "x").unwrap();
+    background::notify(&root, "expense", &Notification::new("n", "Queued")).unwrap();
+    assert!(background::take_lease_as(&root, "expense", Me { host: "Other Mac".into(), pid: 1 }, otherwise_link::lock::now()).held());
+    // what an older helper left in the default root is the device's, not data
+    fs::create_dir_all(root.dir().join("helper")).unwrap();
+    fs::write(root.dir().join("helper").join("state.json"), "{}").unwrap();
+    // a device folder inside the root (odd choice of root) isn't data either
+    let to = t.path().join("OneDrive").join("Otherwise");
+    let p = otherwise_link::relocate::plan_excluding(root.dir(), &to, &[root.dir().join("device-here")]);
+    fs::create_dir_all(root.dir().join("device-here")).unwrap();
+    let p2 = otherwise_link::relocate::plan_excluding(root.dir(), &to, &[root.dir().join("device-here")]);
+    for plan in [&p, &p2] {
+        let names: Vec<&str> = plan.items.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, ["expense"], "{names:?}");
+        assert!(!plan.blocked(), "a lease is not an open file: {:?}", plan.items);
+    }
+    let r = otherwise_link::relocate::relocate(&home, &to, otherwise_link::relocate::Transfer::Move).unwrap();
+    let _ = r;
+    assert!(to.join("expense").join("data.txt").exists());
+    assert!(to.join("expense").join("outbox").join("n.json").exists(), "the outbox travels with the data");
+    assert!(!to.join("helper").exists());
+    assert!(!to.join("expense").join("background.lock.json").exists(), "locks never move");
+    assert!(!home.device.starts_with(root.dir()));
+}

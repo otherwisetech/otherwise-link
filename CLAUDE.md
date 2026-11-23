@@ -5,7 +5,7 @@ rama, mosaico, expense, Vigía, Nodo, Otherwise Apps…). Pure Rust, **no GPUI a
 open-source and closed-source apps can both depend on it. Apps depend on it by git tag:
 
 ```toml
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.4.0" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.0" }
 ```
 
 ## Layout
@@ -26,7 +26,8 @@ crates/link  otherwise-link (lib `otherwise_link`):
              (cloud-folder detection, conflicted copies), lock.rs (<file>.lock.json: host / pid
              / heartbeat, stale), fsutil.rs (atomic writes), text.rs (accent folding),
              background.rs (otherwise-background.json in the install, scan / verify-before-run
-             plan, job reports, notification outbox)
+             plan, job reports, notification outbox, per-app lease so one computer runs a
+             root's jobs); paths.rs also has device_dir() (this computer's state, never synced)
 crates/hub   otherwise-mcp-hub (lib `otherwise_mcp_hub` + bin `otherwise-hub`): child.rs (one
              app's MCP server as a child process), hub.rs (config from discovery, routing,
              read-only gate, restart), tools.rs (entities_* / today / calendar_events / open_link), rpc.rs
@@ -47,6 +48,8 @@ docs/        SPEC.md (formats: normative), INTEGRATING.md (how an app plugs in)
   overwrite at a destination; tests cover every move path (storage.rs, relocate.rs). The
   pointer file `~/.otherwise/config.json` is the only fixed path; everything else follows
   `data_root()`, read fresh each time.
+- **Device state never lives in the data root** (`paths::device_dir()`, not the pre-0.2 folder);
+  `relocate` never carries it, nor background leases.
 - **Never write another app's Today or events file**; writes are atomic (`fsutil::write_atomic`).
 - **The hub is read-only by default.** Write tools (own, and child tools not annotated
   `readOnlyHint: true`) only with `hub.json` `mcpWrites`, re-checked on every call. Never touch
