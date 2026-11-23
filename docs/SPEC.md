@@ -1,4 +1,4 @@
-# otherwise-link specification, version 1 (library 0.3)
+# otherwise-link specification, version 1 (library 0.4)
 
 Normative description of the formats Otherwise apps share. The Rust crate `otherwise-link`
 implements all of it; an app in another language can follow this document instead.
@@ -314,6 +314,10 @@ day; days before today are shown as overdue.
 - `entities`: the user turned the shared registry on. Default false.
 - `mcpWrites`: `otherwise-hub` offers write tools. Default false.
 - `mcpDisabled`: app ids whose MCP servers the hub doesn't start.
+- `background` (library 0.4): `{"quiet": bool, "jobsOff": [app id…], "notificationsOff": [app
+  id…]}` for Otherwise Helper (§11). Defaults: not quiet, everything on.
+
+Readers that rewrite the file MUST keep fields they don't know (library 0.4 does).
 
 Written by the launcher only (atomically); missing or unreadable means all defaults.
 
@@ -430,3 +434,79 @@ Emiliani moves, Easter-based days), `us` (federal, observed days), `us-wy` (Wyom
 offices), `es`, `mx`, `br`, `ca`. Each has a stable id (`co_new_year`, `us_thanksgiving`…)
 for apps to translate and its proper name in the country's language. Apps that show holidays
 or shift dates to business days SHOULD use it so they agree.
+
+## 11. Background jobs (Otherwise Helper)
+
+Added in library 0.4. Otherwise Helper is the launcher's small menu-bar process; it runs work
+apps declare (check mail, ping devices, refresh calendars) while none of their windows is open,
+and shows their notifications. It never links an app's code: it only runs the app's own
+executables.
+
+### 11.1 Declaration
+
+Inside the install, never in the data root, so nothing has to be registered and removing the
+app removes its jobs:
+
+- macOS: `<App>.app/Contents/Resources/otherwise-background.json`
+- Windows / Linux: `otherwise-background.json` in the install folder (§7)
+
+```json
+{ "schema": 1, "app": "expense", "jobs": [
+  { "id": "mail", "label": { "key": "background.mail", "en": "Check mail", "es": "Revisar correo" },
+    "every": "15m", "exe": "expense", "args": ["background", "run", "mail"],
+    "timeoutSecs": 300, "memoryMb": 400, "whileOpen": true, "heavy": true, "network": true } ] }
+```
+
+- `app` MUST be the install's app id; `schema` newer than 1: the file is ignored. At most 64 KiB
+  and 16 jobs.
+- `id`: `[a-z0-9-]`, at most 40 characters, unique. `label`: `en` required, other languages by
+  code (`es`, `pt`, `fr`), `key` optional.
+- `every` (`30s`, `15m`, `1h`, `1d`, at least one minute) or `daily` (`HH:MM`, local time). A
+  job without either is ignored.
+- `exe`: a file name in `Contents/MacOS` (Windows / Linux: the install folder, `.exe` implied);
+  default the app's GUI binary. Paths, `..` and symlinks resolving outside are refused.
+- `timeoutSecs` (default 300, at most 3600), `memoryMb` (default 512, at most 4096): the helper
+  kills a run that exceeds them.
+- `whileOpen` (default true): run even while the app is open. `heavy`: never two at once,
+  skipped under memory pressure. `network`: skipped while offline.
+
+### 11.2 Running
+
+The helper scans the installed apps (§7, bundle or install folder only — a CLI on `PATH`
+doesn't count; on macOS the bundle's `CFBundleIdentifier` must be the app's) when it starts and
+periodically. **Before every run** it repeats the detection and runs nothing unless the same
+install still exists, still declares the job and the executable is an executable file inside
+it. An app that is gone is shown as not installed (or hidden) and not scheduled again until a
+later scan finds it; nothing is downloaded or installed, and the app's data folder is left as
+it is.
+
+A run gets `OTHERWISE_BACKGROUND_JOB=<id>` and `OTHERWISE_LANG=<es|en|pt|fr>` in its
+environment, no stdin, and the user's data root as usual. **Single writer:** a job that writes
+MUST send its writes through the app when the app has the data open (its local socket), and
+otherwise take the data's lock (§2.2) itself. A job with nothing configured exits 0 and reports
+`idle`; it never notifies about that.
+
+Exit 0 is success; anything else (or a kill) is a failure, retried with backoff and shown in
+the helper's menu, never as a notification. The last stdout line may be a report:
+
+```json
+{"otherwiseJob": 1, "status": "2 new receipts", "idle": false}
+```
+
+`status` (at most 120 characters, in the user's language) is shown in the helper's menu.
+
+### 11.3 Notifications
+
+`<data root>/<app id>/outbox/<id>.json`, written by the app (atomically, as §5.1), one file per
+notification:
+
+```json
+{ "schema": 1, "id": "bill-42-due", "title": "Internet due tomorrow", "body": "…",
+  "link": "otherwise://expense/payable/42", "severity": "high",
+  "createdAt": "2026-11-23T08:00:00Z" }
+```
+
+The helper drains the folder (reads, then removes each file) only for installed apps, drops
+notifications older than 24 hours, shows each `<app>/<id>` once (for 30 days), and opens
+`link` when one is clicked. Nothing is shown when `hub.json` `background.quiet` is on or the
+app is in `notificationsOff`; jobs of apps in `jobsOff` don't run.

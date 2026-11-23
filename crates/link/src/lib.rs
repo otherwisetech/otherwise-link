@@ -23,6 +23,7 @@
 //!
 //! The formats are specified in `docs/SPEC.md`; `docs/INTEGRATING.md` is the how-to for apps.
 pub mod apps;
+pub mod background;
 pub mod cloud;
 pub mod entity;
 pub mod events;
