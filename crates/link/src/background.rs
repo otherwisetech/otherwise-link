@@ -351,21 +351,25 @@ pub fn plan(reg: &Registered, job: &str, loc: &Locations) -> Result<Plan, NotRun
     let bad = || NotRunnable::BadExecutable(program.clone());
     let real = std::fs::canonicalize(&program).map_err(|_| bad())?;
     let real_dir = std::fs::canonicalize(&dir).map_err(|_| bad())?;
-    if !real.starts_with(&real_dir) || !real.is_file() || !is_executable(&real) {
+    if !real.starts_with(&real_dir) || !real.is_file() || !is_executable(&real, loc.os) {
         return Err(bad());
     }
     Ok(Plan { program, args: job.args.clone(), job })
 }
 
-#[cfg(unix)]
-fn is_executable(p: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(p).is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
-}
-
-#[cfg(not(unix))]
-fn is_executable(p: &Path) -> bool {
-    p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe"))
+/// By the install's layout: a Windows install runs `.exe` files; elsewhere the execute bits
+/// (where the host has them: a macOS / Linux layout read on Windows, in tests, has none).
+fn is_executable(p: &Path, os: Os) -> bool {
+    if os == Os::Windows {
+        return p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(p).is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    true
 }
 
 /// What a job says about its run, as the last line of its stdout:
