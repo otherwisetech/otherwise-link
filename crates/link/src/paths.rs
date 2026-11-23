@@ -59,6 +59,36 @@ pub struct Pointer {
     pub data_root: Option<PathBuf>,
 }
 
+/// Folders an older helper (Otherwise Apps 0.6.0) left in the default root that belong to the
+/// device, not the data: never moved with the root ([`crate::relocate::plan`]).
+pub const DEVICE_LOCAL_IN_ROOT: &[&str] = &["helper"];
+
+/// This computer's own folder for state that must never sync or move with the data root
+/// (background-job runs, backoff, pause, which device this is):
+///
+/// - macOS: `~/Library/Application Support/com.otherwisetech.device/`
+/// - Windows: `%LOCALAPPDATA%\Otherwise\device\`
+/// - Linux: `$XDG_STATE_HOME/otherwise/` (default `~/.local/state/otherwise/`)
+///
+/// Deliberately not the pre-0.2 shared folder ([`Home::legacy_root`]), which is migrated into
+/// the root. Not created here.
+fn system_device_dir(home: &Path) -> PathBuf {
+    if cfg!(target_os = "macos") {
+        home.join("Library").join("Application Support").join("com.otherwisetech.device")
+    } else if cfg!(windows) {
+        env_dir("LOCALAPPDATA").unwrap_or_else(|| home.join("AppData").join("Local")).join("Otherwise").join("device")
+    } else {
+        env_dir("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local").join("state")).join("otherwise")
+    }
+}
+
+/// See [`system_device_dir`]; `OTHERWISE_DEVICE_DIR` overrides it (tests, a second profile).
+pub fn device_dir() -> PathBuf {
+    env_dir(DEVICE_ENV).unwrap_or_else(|| system_device_dir(&home()))
+}
+
+pub const DEVICE_ENV: &str = "OTHERWISE_DEVICE_DIR";
+
 /// A user's home as far as data placement goes; [`Home::system`] for the real one, [`Home::at`]
 /// for tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,18 +96,20 @@ pub struct Home {
     pub home: PathBuf,
     /// Where versions before 0.2 kept the shared files.
     pub legacy: PathBuf,
+    /// This computer's own folder ([`device_dir`]).
+    pub device: PathBuf,
 }
 
 impl Home {
     pub fn system() -> Home {
         let home = home();
-        Home { legacy: system_legacy_root(&home), home }
+        Home { legacy: system_legacy_root(&home), device: device_dir(), home }
     }
 
-    /// A test home: the legacy folder is `<dir>/legacy`.
+    /// A test home: the legacy folder is `<dir>/legacy`, the device folder `<dir>/device`.
     pub fn at(dir: impl Into<PathBuf>) -> Home {
         let home = dir.into();
-        Home { legacy: home.join("legacy"), home }
+        Home { legacy: home.join("legacy"), device: home.join("device"), home }
     }
 
     pub fn pointer_dir(&self) -> PathBuf {
@@ -208,5 +240,14 @@ mod tests {
         std::fs::write(h.pointer_file(), r#"{"dataRoot":"relative/x"}"#).unwrap();
         assert_eq!(h.data_root(), h.default_root());
         assert_eq!(Root::at(&other).app_dir("vigia"), other.join("vigia"));
+    }
+
+    #[test]
+    fn device_dir_is_outside_the_roots() {
+        let h = Home::system();
+        let dev = system_device_dir(&h.home);
+        assert!(!dev.starts_with(h.default_root()), "{dev:?} would move with the default root");
+        assert!(!dev.starts_with(&h.legacy) && !h.legacy.starts_with(&dev), "{dev:?} vs the pre-0.2 folder {:?}", h.legacy);
+        assert_ne!(dev, h.default_root());
     }
 }

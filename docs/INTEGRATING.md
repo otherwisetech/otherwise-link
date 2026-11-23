@@ -6,7 +6,7 @@ optional and independent: do the ones that make sense for the app.
 
 ```toml
 # the crate that has the logic (core / cli), not only the GPUI app
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.3.0" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.0" }
 ```
 
 Rules that carry over from the apps' CLAUDE.md: shared features are **opt-in or read-only by
@@ -230,7 +230,28 @@ events::clear(&Root::system(), "vigia")?;
   Calendar shows (`holidays::shift` for business days).
 - Every event's `link` should open the thing in your app (register `otherwise-<id>://`, §1).
 
-## 7. Checklist per app
+## 7. Background jobs (Otherwise Helper)
+
+Work that should keep happening while the app is closed (fetch mail, check devices) is
+declared in a file shipped **inside the bundle**, `Contents/Resources/otherwise-background.json`
+(Windows / Linux: next to the binary), see SPEC §11. The bundle script writes it; nothing is
+registered at run time, and the app never has to be opened first.
+
+```rust
+use otherwise_link::background::{self, Job, Label, Manifest, Notification, Report};
+// the bundle script runs `<app> background manifest > …/otherwise-background.json`
+let mut mail = Job::every("mail", Label::en("background.mail", "Check mail").with("es", "Revisar correo"), "15m", &["background", "run", "mail"]);
+mail.heavy = true;
+mail.network = true;
+println!("{}", Manifest { schema: 1, app: "expense".into(), jobs: vec![mail] }.to_json());
+
+// `<app> background run mail`: do the work (through the app's socket if it is open, else under
+// its lock), queue what the user should see, report one line for the menu
+background::notify(&Root::system(), "expense", &Notification::new("receipt-123", "New receipt"))?;
+println!("{}", Report::status("2 new receipts").line()); // or Report::idle() if not set up
+```
+
+## 8. Checklist per app
 
 - [ ] Depend on otherwise-link by tag; rusqlite 0.37.
 - [ ] Scheme in Info.plist, .desktop, Windows registration; links received on all three OSes.
@@ -241,3 +262,4 @@ events::clear(&Root::system(), "vigia")?;
 - [ ] `mcp` subcommand, read-only by default, `readOnlyHint` on reads, `--allow-writes`.
 - [ ] i18n keys for any new UI (es/en/pt/fr) + guard tests green; tests on temp dirs only.
 - [ ] Storage checklist (§5) done.
+- [ ] Background jobs (§7) only if there is real work to do while closed; idle when unconfigured.
