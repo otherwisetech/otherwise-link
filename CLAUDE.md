@@ -5,7 +5,7 @@ rama, mosaico, expense, Vigía, Nodo, Otherwise Apps…). Pure Rust, **no GPUI a
 open-source and closed-source apps can both depend on it. Apps depend on it by git tag:
 
 ```toml
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.2" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.3" }
 ```
 
 ## Layout

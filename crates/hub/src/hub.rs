@@ -46,12 +46,14 @@ pub fn children_for(settings: &HubSettings, found: &[(AppSpec, Installed)]) -> V
         .filter_map(|(s, i)| {
             let program = i.cli.clone()?;
             let mut args = s.mcp_args.clone();
+            let mut write_arg = None;
             if settings.mcp_writes
                 && let Some(w) = &s.mcp_write_arg
             {
                 args.push(w.clone());
+                write_arg = Some(w.clone());
             }
-            Some(ChildSpec { app: s.id.clone(), name: s.name.clone(), program, args })
+            Some(ChildSpec { app: s.id.clone(), name: s.name.clone(), program, args, write_arg })
         })
         .collect()
 }
@@ -62,6 +64,30 @@ struct Slot {
     /// The tools it listed when it last started (kept while it is down).
     tools: Vec<Value>,
     error: Option<String>,
+    /// It refused its write flag and runs read-only (why), decided once per hub session: it is
+    /// restarted read-only and not asked again until the hub starts again.
+    read_only: Option<String>,
+}
+
+/// Starts a child; if it fails in write mode (exits, closes, or refuses `initialize`), starts it
+/// again without the write flag. Never the other way round. Returns the spec that ran.
+fn start_child(spec: ChildSpec, timeout: Duration) -> (Result<ChildServer, CallError>, ChildSpec, Option<String>) {
+    let first = ChildServer::start(&spec, timeout);
+    let refused = match &first {
+        Err(e @ (CallError::Exited { .. } | CallError::Gone | CallError::Rpc { .. })) => e.to_string(),
+        _ => return (first, spec, None),
+    };
+    let Some(ro) = spec.without_writes() else { return (first, spec, None) };
+    match ChildServer::start(&ro, timeout) {
+        Ok(s) => {
+            eprintln!("otherwise-hub: {} refused write mode, running it read-only ({refused})", spec.name);
+            (Ok(s), ro, Some(refused))
+        }
+        Err(e) => {
+            eprintln!("otherwise-hub: {} failed to start with writes ({refused}) and read-only ({e})", spec.name);
+            (Err(CallError::Io(format!("with writes: {refused}; read-only: {e}"))), spec, None)
+        }
+    }
 }
 
 pub struct Hub {
@@ -78,10 +104,21 @@ pub struct ChildStatus {
     pub name: String,
     pub program: String,
     pub tools: Result<usize, String>,
+    /// Running read-only because the app refused write mode (its message).
+    pub read_only: Option<String>,
 }
 
 fn read_only(tool: &Value) -> bool {
     tool.pointer("/annotations/readOnlyHint").and_then(Value::as_bool) == Some(true)
+}
+
+impl Slot {
+    /// The tools offered from this app: reads, plus writes when the hub offers writes and the
+    /// app runs in write mode.
+    fn offered(&self, writes: bool) -> impl Iterator<Item = &Value> {
+        let writes = writes && self.read_only.is_none();
+        self.tools.iter().filter(move |t| writes || read_only(t))
+    }
 }
 
 /// `vigia.due` / `vigia__due` → ("vigia", "due").
@@ -95,13 +132,20 @@ impl Hub {
     pub fn start(cfg: Config) -> Hub {
         let writes_at_start = cfg.writes.unwrap_or_else(|| HubSettings::load(&cfg.root).mcp_writes);
         let timeout = cfg.start_timeout;
-        let handles: Vec<_> = cfg.children.iter().cloned().map(|spec| std::thread::spawn(move || (ChildServer::start(&spec, timeout), spec))).collect();
+        let handles: Vec<_> = cfg
+            .children
+            .iter()
+            .cloned()
+            // writes off for this session: no child gets its write flag, whatever the spec says
+            .map(|spec| if writes_at_start { spec } else { spec.without_writes().unwrap_or(spec) })
+            .map(|spec| std::thread::spawn(move || start_child(spec, timeout)))
+            .collect();
         let slots = handles
             .into_iter()
             .filter_map(|h| h.join().ok())
-            .map(|(res, spec)| match res {
-                Ok(s) => Slot { spec, tools: s.tools.clone(), server: Some(s), error: None },
-                Err(e) => Slot { spec, server: None, tools: vec![], error: Some(e.to_string()) },
+            .map(|(res, spec, read_only)| match res {
+                Ok(s) => Slot { spec, tools: s.tools.clone(), server: Some(s), error: None, read_only },
+                Err(e) => Slot { spec, server: None, tools: vec![], error: Some(e.to_string()), read_only },
             })
             .collect();
         Hub { cfg, slots, writes_at_start }
@@ -124,6 +168,7 @@ impl Hub {
                 name: s.spec.name.clone(),
                 program: s.spec.program.display().to_string(),
                 tools: if s.tools.is_empty() && s.server.is_none() { Err(s.error.clone().unwrap_or_default()) } else { Ok(s.tools.len()) },
+                read_only: s.read_only.clone(),
             })
             .collect()
     }
@@ -132,7 +177,7 @@ impl Hub {
         let writes = self.offered_writes();
         let mut out = tools::own(writes);
         for s in &self.slots {
-            for t in s.tools.iter().filter(|t| writes || read_only(t)) {
+            for t in s.offered(writes) {
                 let Some(name) = t.get("name").and_then(Value::as_str) else { continue };
                 let mut t = t.clone();
                 t["name"] = json!(format!("{}.{name}", s.spec.app));
@@ -145,7 +190,7 @@ impl Hub {
     }
 
     fn instructions(&self) -> String {
-        let apps: Vec<String> = self.slots.iter().filter(|s| !s.tools.is_empty()).map(|s| format!("{} ({}.*)", s.spec.name, s.spec.app)).collect();
+        let apps: Vec<String> = self.slots.iter().filter(|s| !s.tools.is_empty()).map(|s| format!("{} ({}.*{})", s.spec.name, s.spec.app, if s.read_only.is_some() && self.offered_writes() { ", read-only: its own settings don't allow agent changes" } else { "" })).collect();
         let mode = if self.offered_writes() { "Write tools are enabled; every write is recorded by the app that makes it." } else { "Read-only: write tools are off (the user can enable them in Otherwise Apps → Hub)." };
         let apps = if apps.is_empty() { "No app MCP servers were found.".to_string() } else { format!("App tools: {}.", apps.join(", ")) };
         format!("Otherwise Technologies' desktop apps in one place. {apps} Own tools: entities_* (the shared people / companies / vehicles / properties / devices / sites registry, if the user turned it on), today (what needs attention across apps), calendar_events (the user's calendar across apps for a date range, with holidays), open_link (otherwise:// deep links). {mode}")
@@ -197,9 +242,13 @@ impl Hub {
         let def = slot.tools.iter().find(|t| t.get("name").and_then(Value::as_str) == Some(tool)).cloned();
         if let Some(d) = &def
             && !read_only(d)
-            && !(offered && writes_now)
         {
-            return Ok(rpc::tool_error("write tools are off: the user can enable them in Otherwise Apps → Hub"));
+            if !(offered && writes_now) {
+                return Ok(rpc::tool_error("write tools are off: the user can enable them in Otherwise Apps → Hub"));
+            }
+            if let Some(why) = &slot.read_only {
+                return Ok(rpc::tool_error(&format!("{} runs read-only: its own settings don't allow agent changes ({why})", slot.spec.name)));
+            }
         }
         if def.is_none() {
             if slot.tools.is_empty() {
@@ -218,7 +267,13 @@ impl Hub {
             // it died since the last call (or timed out then): one fresh start per call
             Err(CallError::Gone) => {
                 slot.server = None;
-                match ChildServer::start(&slot.spec, start_timeout) {
+                let (started, spec, refused) = start_child(slot.spec.clone(), start_timeout);
+                if refused.is_some() {
+                    // it stopped allowing writes since: read-only from now on (never back)
+                    slot.spec = spec;
+                    slot.read_only = refused;
+                }
+                match started {
                     Ok(mut s) => {
                         let r = s.request("tools/call", params, timeout);
                         slot.tools = s.tools.clone();

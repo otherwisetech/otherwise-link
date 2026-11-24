@@ -13,6 +13,15 @@ use std::time::Duration;
 
 fn fake_child(mode: &str) {
     let writes = std::env::args().any(|a| a == "--allow-writes");
+    // like expense when the book doesn't allow agent changes: refuses write mode before anything
+    if mode == "refuse" && writes {
+        eprintln!("This book doesn't allow AI agents to make changes.");
+        std::process::exit(4);
+    }
+    if mode == "broken" {
+        eprintln!("boom");
+        std::process::exit(1);
+    }
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
     // noise a real server might print: a non-JSON line and a log notification
@@ -70,7 +79,8 @@ fn spec(app: &str, mode: &str, writes: bool) -> ChildSpec {
     if writes {
         args.push("--allow-writes".into());
     }
-    ChildSpec { app: app.into(), name: format!("Fake {app}"), program: std::env::current_exe().unwrap(), args }
+    let write_arg = writes.then(|| "--allow-writes".to_string());
+    ChildSpec { app: app.into(), name: format!("Fake {app}"), program: std::env::current_exe().unwrap(), args, write_arg }
 }
 
 struct Env {
@@ -189,7 +199,7 @@ fn crashed_child_restarts() {
 
 fn slow_and_broken_children_are_skipped() {
     let e = env();
-    let missing = ChildSpec { app: "expense".into(), name: "expense".into(), program: "/nonexistent/expense-cli".into(), args: vec!["mcp".into()] };
+    let missing = ChildSpec { app: "expense".into(), name: "expense".into(), program: "/nonexistent/expense-cli".into(), args: vec!["mcp".into()], write_arg: None };
     let mut cfg = Config::new(e.root.clone(), vec![spec("vigia", "hang", false), missing, spec("nodo", "ok", false)]);
     cfg.writes = Some(false);
     cfg.start_timeout = Duration::from_millis(800);
@@ -210,6 +220,59 @@ fn slow_and_broken_children_are_skipped() {
     let init = rpc(&mut h, 1, "initialize", json!({"protocolVersion": "2025-06-18"}));
     let text = init["result"]["instructions"].as_str().unwrap();
     assert!(text.contains("nodo.*") && !text.contains("vigia.*"), "{text}");
+}
+
+fn refused_writes_fall_back_to_read_only() {
+    let e = env();
+    HubSettings::update(&e.root, |s| s.mcp_writes = true).unwrap();
+    let mut h = hub(&e, vec![spec("expense", "refuse", true), spec("vigia", "ok", true), spec("nodo", "broken", true)], None);
+    let st = h.status();
+    // refuses --allow-writes, works read-only: kept, read-only, with its reason
+    assert_eq!(st[0].tools, Ok(3), "{st:?}");
+    let why = st[0].read_only.clone().expect("expense runs read-only");
+    assert!(why.contains("code 4") && why.contains("doesn't allow AI agents"), "{why}");
+    // accepts writes: stays in write mode
+    assert_eq!((st[1].tools.clone(), st[1].read_only.clone()), (Ok(3), None));
+    // fails both ways: omitted, with a visible error naming both attempts
+    let err = st[2].tools.clone().unwrap_err();
+    assert!(err.contains("with writes") && err.contains("read-only") && err.contains("boom"), "{err}");
+    assert_eq!(st[2].read_only, None);
+
+    let n = names(&mut h);
+    assert!(n.contains(&"expense.search".to_string()), "{n:?}");
+    assert!(!n.contains(&"expense.set".to_string()) && !n.contains(&"expense.unannotated".to_string()), "no write tools from a read-only app: {n:?}");
+    assert!(n.contains(&"vigia.set".to_string()) && n.contains(&"entities_upsert".to_string()), "{n:?}");
+    assert!(!n.iter().any(|t| t.starts_with("nodo.")), "{n:?}");
+
+    let r = call(&mut h, "expense.search", json!({}));
+    assert_eq!(r["result"]["structuredContent"]["writes"], false, "{r}");
+    let pid = r["result"]["structuredContent"]["pid"].as_u64().unwrap();
+    let r = call(&mut h, "expense.set", json!({}));
+    assert_eq!(r["result"]["isError"], true);
+    assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("read-only"), "{r}");
+    assert_eq!(call(&mut h, "vigia.set", json!({}))["result"]["structuredContent"]["writes"], true);
+    assert_eq!(call(&mut h, "nodo.search", json!({}))["result"]["isError"], true);
+
+    // the decision is kept for the session: after a crash it comes back read-only at once
+    assert_eq!(call(&mut h, "expense.search", json!({"crash": true}))["result"]["isError"], true);
+    let r = call(&mut h, "expense.search", json!({}));
+    assert_ne!(r["result"]["structuredContent"]["pid"].as_u64().unwrap(), pid);
+    assert_eq!(r["result"]["structuredContent"]["writes"], false);
+    assert!(h.status()[0].read_only.is_some());
+    let init = rpc(&mut h, 1, "initialize", json!({"protocolVersion": "2025-06-18"}));
+    assert!(init["result"]["instructions"].as_str().unwrap().contains("expense.*, read-only"), "{init}");
+
+    // a hub with writes off never passes the write flag, so nothing is refused or retried
+    let mut off = hub(&e, vec![spec("expense", "refuse", true)], Some(false));
+    let st = off.status();
+    assert_eq!((st[0].tools.clone(), st[0].read_only.clone()), (Ok(3), None));
+    assert_eq!(call(&mut off, "expense.search", json!({}))["result"]["structuredContent"]["writes"], false);
+
+    // the fallback only removes the write flag
+    let s = spec("x", "ok", true);
+    assert_eq!(s.without_writes().unwrap().args, ["--mode=ok"]);
+    assert_eq!(s.without_writes().unwrap().without_writes(), None);
+    assert_eq!(spec("x", "ok", false).without_writes(), None);
 }
 
 fn today_and_open_link() {
@@ -302,6 +365,7 @@ fn discovery_to_children() {
     let c = children_for(&s, &found);
     assert_eq!(c.len(), 1);
     assert_eq!(c[0].args, ["mcp", "--allow-writes"]);
+    assert_eq!(c[0].write_arg.as_deref(), Some("--allow-writes"));
 }
 
 fn main() {
@@ -314,6 +378,7 @@ fn main() {
         ("writes_when_enabled", writes_when_enabled),
         ("crashed_child_restarts", crashed_child_restarts),
         ("slow_and_broken_children_are_skipped", slow_and_broken_children_are_skipped),
+        ("refused_writes_fall_back_to_read_only", refused_writes_fall_back_to_read_only),
         ("today_and_open_link", today_and_open_link),
         ("protocol", protocol),
         ("discovery_to_children", discovery_to_children),
