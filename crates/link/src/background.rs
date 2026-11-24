@@ -202,6 +202,31 @@ pub struct Manifest {
     pub app: String,
     #[serde(default)]
     pub jobs: Vec<Job>,
+    /// How the app serves its documents to an Otherwise server (SPEC §12.8), library 0.6.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serve: Option<Serve>,
+}
+
+/// `serve` in the manifest: a long-running, windowless process that answers the app socket
+/// protocol on stdin / stdout for one document (`<exe> <args…> --book <path>`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Serve {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exe: Option<String>,
+    pub args: Vec<String>,
+    /// The protocol the process speaks (expense's app socket: 1).
+    #[serde(default = "one")]
+    pub protocol: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_mb: Option<u64>,
+    /// Stop it after this long without requests or subscribers (default 600).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_secs: Option<u64>,
+}
+
+fn one() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -248,6 +273,9 @@ impl Manifest {
         let mut seen = std::collections::BTreeSet::new();
         m.jobs.retain(|j| valid_job_id(&j.id) && seen.insert(j.id.clone()) && j.schedule().is_some() && j.exe.as_deref().is_none_or(valid_exe) && !j.label.en.trim().is_empty());
         m.jobs.truncate(MAX_JOBS);
+        if m.serve.as_ref().is_some_and(|s| s.args.is_empty() || s.args.len() > 16 || !s.exe.as_deref().is_none_or(valid_exe)) {
+            m.serve = None;
+        }
         Ok(m)
     }
 
@@ -314,7 +342,7 @@ pub fn registered(spec: &AppSpec, loc: &Locations) -> Option<Registered> {
         return None;
     }
     let manifest = load(loc.os, &install, &spec.id).ok()?;
-    (!manifest.jobs.is_empty()).then_some(Registered { spec: spec.clone(), installed, install, manifest })
+    (!manifest.jobs.is_empty() || manifest.serve.is_some()).then_some(Registered { spec: spec.clone(), installed, install, manifest })
 }
 
 /// Why a job can't run now. The helper skips quietly and stops scheduling the app.
@@ -345,8 +373,32 @@ pub fn plan(reg: &Registered, job: &str, loc: &Locations) -> Result<Plan, NotRun
         return Err(NotRunnable::NotInstalled);
     }
     let job = now.manifest.jobs.iter().find(|j| j.id == job).cloned().ok_or(NotRunnable::NoSuchJob)?;
+    let program = checked_exe(&now, job.exe.as_deref(), loc)?;
+    Ok(Plan { program, args: job.args.clone(), job })
+}
+
+/// What runs to serve one of `reg`'s documents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServePlan {
+    pub program: PathBuf,
+    pub args: Vec<String>,
+    pub serve: Serve,
+}
+
+/// Like [`plan`] for the app's `serve` process: re-checked before every start.
+pub fn plan_serve(reg: &Registered, loc: &Locations) -> Result<ServePlan, NotRunnable> {
+    let now = registered(&reg.spec, loc).ok_or(NotRunnable::NotInstalled)?;
+    if now.install != reg.install {
+        return Err(NotRunnable::NotInstalled);
+    }
+    let serve = now.manifest.serve.clone().ok_or(NotRunnable::NoSuchJob)?;
+    let program = checked_exe(&now, serve.exe.as_deref(), loc)?;
+    Ok(ServePlan { program, args: serve.args.clone(), serve })
+}
+
+fn checked_exe(now: &Registered, exe: Option<&str>, loc: &Locations) -> Result<PathBuf, NotRunnable> {
     let dir = exe_dir(loc.os, &now.install);
-    let name = job.exe.clone().unwrap_or_else(|| reg.spec.binary.clone());
+    let name = exe.map(str::to_string).unwrap_or_else(|| now.spec.binary.clone());
     let file = if loc.os == Os::Windows && !name.to_ascii_lowercase().ends_with(".exe") { format!("{name}.exe") } else { name };
     let program = dir.join(&file);
     let bad = || NotRunnable::BadExecutable(program.clone());
@@ -355,7 +407,7 @@ pub fn plan(reg: &Registered, job: &str, loc: &Locations) -> Result<Plan, NotRun
     if !real.starts_with(&real_dir) || !real.is_file() || !is_executable(&real, loc.os) {
         return Err(bad());
     }
-    Ok(Plan { program, args: job.args.clone(), job })
+    Ok(program)
 }
 
 /// By the install's layout: a Windows install runs `.exe` files; elsewhere the execute bits

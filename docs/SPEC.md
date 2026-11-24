@@ -1,4 +1,4 @@
-# otherwise-link specification, version 1 (library 0.5)
+# otherwise-link specification, version 1 (library 0.6)
 
 Normative description of the formats Otherwise apps share. The Rust crate `otherwise-link`
 implements all of it; an app in another language can follow this document instead.
@@ -559,3 +559,137 @@ The lease holder's helper (§11.3) drains the folder (reads, then removes each f
 notifications older than 24 hours, shows each `<app>/<id>` once (for 30 days), and opens
 `link` when one is clicked. Nothing is shown when `hub.json` `background.quiet` is on or the
 app is in `notificationsOff`; jobs of apps in `jobsOff` don't run.
+
+## 12. Otherwise server (`/v1`, library 0.6)
+
+An app can work on the documents (books, workspaces, maps) of another computer of the user's
+tailnet — typically an always-on Mac Studio — instead of its own. The server computer runs the
+Otherwise Helper in **server mode**; the client is the same desktop app (or a phone) with the
+`otherwise-remote` crate. Vcity cloud will implement the same contract later with its own sign-in;
+only authentication changes. Types and golden vectors: `crates/remote/src/types.rs`,
+`crates/remote/tests/vectors/`.
+
+### 12.1 Transport and placement
+
+- HTTP/1.1 + JSON under `https://<computer>.<tailnet>.ts.net/v1/…`. The server process MUST
+  listen on loopback only (`127.0.0.1`) and refuse to start on any other address; the tailnet
+  reaches it through `tailscale serve --bg --https=443 http://127.0.0.1:<port>`. Never Funnel:
+  a request carrying `Tailscale-Funnel-Request` MUST be refused.
+- Live changes are server-sent events (`text/event-stream`); writes are POSTs.
+- **The server is the only writer of a document.** It starts the app's own executable as
+  declared in its manifest (§12.8) for each open document and talks to it on stdin / stdout;
+  it never opens an app's files itself and links no app code.
+- Clients never open the server's files by other means (synced folder, SMB). The server's data
+  root SHOULD be on local disk; synced folders are only a destination for closed backups.
+
+### 12.2 Identity
+
+There are no accounts or tokens of the server's own. Identity is Tailscale's:
+
+1. `tailscale serve` adds `Tailscale-User-Login` and `Tailscale-User-Name` for user devices and
+   `X-Forwarded-For` with the peer's tailnet address.
+2. The server MUST confirm it with the local Tailscale (`whois <address>`): the address MUST be a
+   tailnet address (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), whois MUST name a node, and when the
+   header is present it MUST equal whois' login. A tagged node (no user) is identified as its
+   first tag (`tag:ci`). Otherwise the answer is `401 unauthorized`.
+3. **Loopback is not trusted.** Other processes of the same OS user (CI runners, scripts) can
+   reach `127.0.0.1` and write any header. On macOS the server MUST check that the connecting
+   end of every loopback connection belongs to the Tailscale process (its `IPNExtension` /
+   `tailscaled` executable inside the installed Tailscale app or a root-owned path), and refuse
+   anything else with `401`. Where that can't be checked the server refuses all requests unless
+   its owner turned the check off explicitly (`trustLoopback`, for test servers).
+
+The identity string used for members, the audit log and seat counting is the login
+(`ana@example.com`); the device is whois' node name.
+
+### 12.3 Resources
+
+| Request | Answer |
+|---|---|
+| `GET /v1/hello` | `{server: "otherwise", version, protocols: {min, max}, host, me?: {login, name, device, role?}, apps: [{id, version, protocol}]}`. No business data; doesn't count as activity. `me` is absent when the caller isn't a member. |
+| `GET /v1/apps/<app>/docs` | `{docs: [{id, name, role, revision?}]}`: only the documents shared with the caller. |
+| `GET /v1/apps/<app>/docs/<doc>/hello` | `{app, doc, name, role, writable, revision, protocol, readOnlyReason?, seats?}`. `seats` only for owners (§12.6). |
+| `GET …/snapshot` | The document as one file: SQLite apps send a consistent copy (`VACUUM INTO`), with `ETag: "<revision>"` and `X-Otherwise-Revision`; `If-None-Match` with the current tag → `304`. |
+| `POST …/ops` | `{op, args, baseRevision?, idempotencyKey, command?}` → `{ok: true, result, revision, changeId?, replayed?}`. |
+| `POST …/undo` | `{changeId?, idempotencyKey}` → same shape. Without `changeId`: the caller's own last change. |
+| `GET …/events` | SSE, below. |
+
+`<app>` and `<doc>` are `[a-z0-9._-]`, at most 80 characters, not starting with `.`. A document
+that isn't shared with the caller doesn't exist for them: `404`, never `403`.
+
+**Ops.** `op` is one of the app's named write operations (expense: `core::ops::OPS`), run as one
+undoable change in the document's journal, with `actor = <login>@<device>` and source `remote`
+(`mcp` for the `agent` role). `idempotencyKey` (a random 128-bit hex string per user action)
+MUST be honoured for at least 24 hours: a repeat of a key gets the stored answer with
+`replayed: true` and writes nothing. With `baseRevision`, a document no longer at that
+revision answers `409 conflict` with `revision`. Without it, operations apply on the current
+state (field-wise last writer wins; the app checks its own invariants: closed months,
+existence…). Requests are serialized per document.
+
+**Events.** Each message has `event:` (the kind), `id:` (the document revision) and `data:` (the
+JSON below, with its `event` tag). A client reconnects with `Last-Event-ID`; when the revision
+moved meanwhile it gets a `changed` at once. Comments (`: keepalive`) at least every 20 s. The
+server MAY close a stream any time after `bye` (`rotate` every few minutes, `update`,
+`shutdown`, `idle`).
+
+```json
+{"event": "changed", "revision": 1235, "tables": ["receipts"], "actor": "ana@example.com@macbookpro"}
+{"event": "job", "id": "mail", "status": "2 new receipts"}
+{"event": "bye", "reason": "update"}
+```
+
+Unknown kinds MUST be skipped.
+
+### 12.4 Roles
+
+Per member, server-wide with optional per-document overrides, in the server's own
+`<device dir>/server/server.json` (machine state, never the data root):
+
+| Role | May |
+|---|---|
+| `owner` | everything, including undoing anyone's change, seats and the audit log |
+| `editor` | ops, undo of their own changes |
+| `viewer` | hello, snapshot, events only (`ops` → `403 forbidden`) |
+| `agent` | ops as an agent (source `mcp`): only when the document lets agents write, and never people-only operations (approving, closing a month) |
+
+A caller with no membership gets `403 forbidden` on every document request (`hello` still
+answers, without `me`).
+
+### 12.5 Errors
+
+`{"ok": false, "error": {"code", "message", …}}` with extra fields (`rows`, `month`, `revision`…).
+Status by code: `bad_request`, `invalid`, `unknown_op` 400 · `unauthorized` 401 · `licence` 402
+· `forbidden`, `people_only` 403 · `not_found` 404 · `conflict`, `read_only`, `locked`,
+`exists`, `already_undone`, `nothing_to_undo`, `busy`, `not_ready` 409 · `too_large` 413 ·
+`unavailable` 503 (with `Retry-After`) · anything else 500. App operation errors keep the app's
+code (expense's app socket codes).
+
+### 12.6 Seats
+
+The server counts **distinct identities with at least one authenticated document request in a
+rolling 30-day window** (`hello` alone doesn't count). Removing a member frees their seat at
+once. With a tier maximum set, the first day above it is `overSince`. Seats are shown to owners
+(`…/hello` `seats`). Library 0.6 counts and logs only: nothing is sent anywhere and nobody is
+made read-only; the licence check and its minimal telemetry come with the Vcity licence API.
+
+### 12.7 Audit
+
+`<device dir>/server/audit/<yyyy-mm>.jsonl`, append-only, one line per write request and per
+snapshot download: `{at, login, device, app, doc, op, argsSha256, result, revision?, changeId?}`.
+Never the arguments themselves (they are the user's data; the document's own journal has them).
+
+### 12.8 `serve` in the manifest
+
+An app that can be served declares it in its §11.1 manifest (readers before library 0.6 ignore
+the field):
+
+```json
+{ "schema": 1, "app": "expense", "jobs": [ … ],
+  "serve": { "args": ["serve", "--stdio"], "protocol": 1, "memoryMb": 500, "idleSecs": 600 } }
+```
+
+The server starts `<exe> <args…> --book <document folder>` (`exe` as for jobs, re-verified before
+every start like a job) and speaks the app's socket protocol (expense: `docs/app-socket.md`) as
+JSON lines on stdin / stdout; lines carrying an `event` key are unsolicited events (§12.3).
+It stops the process after `idleSecs` without requests or subscribers, and kills it above
+`memoryMb`.
