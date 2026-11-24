@@ -311,15 +311,23 @@ impl Event {
     }
 }
 
-/// A random idempotency key (128 bits from the OS RNG, hex).
+/// A random idempotency key: 128 bits, 32 hex digits (`/dev/urandom`; elsewhere std's
+/// randomly keyed hasher, which the OS seeds).
 pub fn new_key() -> String {
     let mut b = [0u8; 16];
     if fill_random(&mut b).is_err() {
-        // never reuse a key: fall back to time and a counter
+        use std::hash::{BuildHasher, Hasher};
         use std::sync::atomic::{AtomicU64, Ordering};
         static N: AtomicU64 = AtomicU64::new(0);
         let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-        return format!("{t:x}-{:x}-{:x}", std::process::id(), N.fetch_add(1, Ordering::Relaxed));
+        for half in 0..2 {
+            let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+            h.write_u128(t);
+            h.write_u64(N.fetch_add(1, Ordering::Relaxed));
+            h.write_u32(std::process::id());
+            h.write_u8(half);
+            b[half as usize * 8..half as usize * 8 + 8].copy_from_slice(&h.finish().to_le_bytes());
+        }
     }
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
