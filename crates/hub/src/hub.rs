@@ -191,7 +191,7 @@ impl Hub {
 
     fn instructions(&self) -> String {
         let apps: Vec<String> = self.slots.iter().filter(|s| !s.tools.is_empty()).map(|s| format!("{} ({}.*{})", s.spec.name, s.spec.app, if s.read_only.is_some() && self.offered_writes() { ", read-only: its own settings don't allow agent changes" } else { "" })).collect();
-        let mode = if self.offered_writes() { "Write tools are enabled; every write is recorded by the app that makes it." } else { "Read-only: write tools are off (the user can enable them in Otherwise Apps → Hub)." };
+        let mode = if self.offered_writes() { "Write tools are enabled; every write is recorded by the app that makes it." } else { "Read-only: write tools are off (the user can enable them in Otherwise Hub → Hub)." };
         let apps = if apps.is_empty() { "No app MCP servers were found.".to_string() } else { format!("App tools: {}.", apps.join(", ")) };
         format!("Otherwise Technologies' desktop apps in one place. {apps} Own tools: entities_* (the shared people / companies / vehicles / properties / devices / sites registry, if the user turned it on), today (what needs attention across apps), calendar_events (the user's calendar across apps for a date range, with holidays), open_link (otherwise:// deep links). {mode}")
     }
@@ -228,7 +228,7 @@ impl Hub {
     pub fn call(&mut self, name: &str, args: Value) -> Result<Value, (i64, String)> {
         if let Some(t) = tools::find(name) {
             if t.write && !self.writes() {
-                return Ok(rpc::tool_error("write tools are off: the user can enable them in Otherwise Apps → Hub"));
+                return Ok(rpc::tool_error("write tools are off: the user can enable them in Otherwise Hub → Hub"));
             }
             return Ok(tools::call(self, name, &args));
         }
@@ -244,7 +244,7 @@ impl Hub {
             && !read_only(d)
         {
             if !(offered && writes_now) {
-                return Ok(rpc::tool_error("write tools are off: the user can enable them in Otherwise Apps → Hub"));
+                return Ok(rpc::tool_error("write tools are off: the user can enable them in Otherwise Hub → Hub"));
             }
             if let Some(why) = &slot.read_only {
                 return Ok(rpc::tool_error(&format!("{} runs read-only: its own settings don't allow agent changes ({why})", slot.spec.name)));

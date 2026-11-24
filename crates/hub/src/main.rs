@@ -16,7 +16,7 @@ usage:
   otherwise-hub list     show the apps found and their tools (--json for JSON)
   otherwise-hub --version
 
-Write tools are offered only when enabled in Otherwise Apps (Settings → Hub).
+Write tools are offered only when enabled in Otherwise Hub (Settings → Hub).
 Shared data: OTHERWISE_DATA_DIR, else the platform's Otherwise folder.";
 
 fn main() {

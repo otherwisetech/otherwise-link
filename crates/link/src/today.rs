@@ -12,7 +12,7 @@
 //! ```
 //!
 //! - `id`: stable per app (the same reminder keeps its id across rewrites, so a dismissal
-//!   sticks). Dismissals live in `today/.dismissed.json` (written by Otherwise Apps).
+//!   sticks). Dismissals live in `today/.dismissed.json` (written by Otherwise Hub).
 //! - `when`: `YYYY-MM-DD` (a day) or RFC 3339 (a moment). `expires`: same formats; a day means
 //!   the end of that day, local time. No `when`: undated (shown under "Anytime").
 //! - Limits: [`MAX_EVENTS`] per app, [`MAX_FILE`] bytes per file, titles cut at [`MAX_TITLE`]

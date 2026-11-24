@@ -3,7 +3,7 @@
 //! by Nodo can carry Vigía's warranty dates.
 //!
 //! **Opt-in.** [`Registry::open_shared`] refuses ([`Error::Disabled`]) until the user turns the
-//! registry on in Otherwise Apps (`hub.json` → `entities: true`); nothing creates the file
+//! registry on in Otherwise Hub (`hub.json` → `entities: true`); nothing creates the file
 //! before that.
 //!
 //! **Several processes at once.** Every app opens its own connection. The database uses the
@@ -86,7 +86,7 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Disabled => write!(f, "the shared entity registry is off (turn it on in Otherwise Apps → Entities)"),
+            Error::Disabled => write!(f, "the shared entity registry is off (turn it on in Otherwise Hub → Entities)"),
             Error::Sql(e) => write!(f, "entity registry: {e}"),
             Error::Card(e) => write!(f, "{e}"),
             Error::NotFound(id) => write!(f, "no entity {id}"),

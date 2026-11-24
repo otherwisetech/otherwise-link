@@ -65,7 +65,7 @@ fn ics_utc(t: DateTime<Utc>) -> String {
 pub struct Options {
     /// `X-WR-CALNAME`.
     pub name: String,
-    /// `PRODID` product part (`Otherwise Apps`).
+    /// `PRODID` product part (`Otherwise Hub`).
     pub product: String,
     /// Replaces the title of busy-only events ("Busy"); their details are left out.
     pub busy_label: String,

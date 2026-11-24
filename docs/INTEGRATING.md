@@ -6,7 +6,7 @@ optional and independent: do the ones that make sense for the app.
 
 ```toml
 # the crate that has the logic (core / cli), not only the GPUI app
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.3" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.4" }
 ```
 
 Rules that carry over from the apps' CLAUDE.md: shared features are **opt-in or read-only by
@@ -36,7 +36,7 @@ empty (`cli`, `mcpArgs`, `mcpWriteArg`, `capabilities`), never the ones the tabl
    The script's `lsregister -f` (or copying to /Applications) registers it.
 2. **Linux**: in `packaging/linux/<app>.desktop` add `MimeType=x-scheme-handler/otherwise-<id>;`
    and make `Exec=` end in `%u` (`register::linux_desktop_patch` does both). When the app
-   installs its menu entry (or Otherwise Apps does), call
+   installs its menu entry (or Otherwise Hub does), call
    `register::register_linux("<bundle id>.desktop", &["otherwise-<id>"])`.
 3. **Windows**: on first start (cheap, idempotent), call
    `register::register_windows("otherwise-<id>", &std::env::current_exe()?, "<Name>")`
@@ -51,7 +51,7 @@ empty (`cli`, `mcpArgs`, `mcpWriteArg`, `capabilities`), never the ones the tabl
      `refs["<id>"]` to find your record) and the empty path (focus). Document your own paths
      (`item/<id>`, `device/<id>`…) in your README.
 5. **Open other apps' links** with `otherwise_link::open::open_link(&link)` (tries
-   `otherwise-<app>://`, falls back to `otherwise://`, which Otherwise Apps handles). Build
+   `otherwise-<app>://`, falls back to `otherwise://`, which Otherwise Hub handles). Build
    links with `Link::new("nodo").segment("device").segment(id)`.
 
 ## 2. Publish Today events
@@ -79,7 +79,7 @@ today::publish(&Root::system(), "vigia", &events)?;   // [] when nothing is pend
 - Kinds: `due` (deadline), `alert` (something wrong now: device down, cert expired), `review`
   (inbox to review), `info`. Don't flood: at most 200 events, prefer the next 30 days.
 - If the user turns the feature off in your app, call `today::clear(&root, "<id>")`.
-- Add a setting ("Show in Otherwise Apps' Today") if the content is sensitive; default on is
+- Add a setting ("Show in Otherwise Hub's Today") if the content is sensitive; default on is
   fine for plain reminders.
 
 ## 3. Sync entities
@@ -125,7 +125,7 @@ loop {
   `owner-12`, `item-7`).
 - Never delete your own records because the shared card was deleted or merged; only update
   the link to it. Never merge on your own: show `duplicates()` to the user or leave it to
-  Otherwise Apps' Entities view.
+  Otherwise Hub's Entities view.
 - What to share: owners / counterparties (people, companies), vehicles, properties, devices,
   sites, domains. Put app-only extras under `ext["<id>"]`.
 
@@ -137,7 +137,7 @@ loop {
 2. Read-only by default. Annotate every read tool `"annotations": {"readOnlyHint": true}`;
    tools without it are treated as writes and hidden unless the user enabled hub writes.
    Offer write tools only with `--allow-writes` (the hub passes it only when the user enabled
-   writes in Otherwise Apps); record writes so they can be undone.
+   writes in Otherwise Hub); record writes so they can be undone.
 3. Ship the CLI where discovery finds it: inside the bundle (`Contents/MacOS/<cli>`), next to
    the GUI in the Windows / Linux folder, or on PATH; the name must be in the app's `cli` list
    in `apps::KNOWN` (and `Capability::Mcp` set, with `mcp_args: ["mcp"]`,
@@ -146,12 +146,12 @@ loop {
 4. Tool names: plain `snake_case` without the app prefix (the hub adds `vigia.`). Return
    `structuredContent` plus a text copy, `isError: true` for tool failures.
 5. Check: `otherwise-hub list` shows the app and its tool count; in Claude Code
-   `claude mcp add otherwise-hub -- otherwise-hub` (or Otherwise Apps' `… otherwise-apps mcp`).
+   `claude mcp add otherwise-hub -- otherwise-hub` (or Otherwise Hub's `… otherwise-apps mcp`).
 
 ## 5. Where the app keeps its data (storage)
 
 The user chooses one **data root** for all Otherwise apps (default `~/.otherwise`, movable to
-OneDrive & co. from Otherwise Apps → Settings). Each app's default folder is
+OneDrive & co. from Otherwise Hub → Settings). Each app's default folder is
 `otherwise_link::paths::app_dir("<id>")` = `<root>/<id>/`. Machine-local settings, caches and
 models stay in the app's platform config folder (they aren't data and shouldn't sync).
 
@@ -179,7 +179,7 @@ let st = storage::status(&path);                       // st.cloud (provider), s
 `heartbeat()` returning `Err` means another computer took the file over: stop writing, tell the
 user. `relocate::plan(&from, &to)` reports a folder as blocked while a lock in it is live, so an
 app that keeps its database in `<root>/<id>/` must hold its lock while it has it open (that's
-what keeps Otherwise Apps from moving it underneath you).
+what keeps Otherwise Hub from moving it underneath you).
 
 ### Storage checklist (per app)
 
@@ -207,7 +207,7 @@ what keeps Otherwise Apps from moving it underneath you).
 
 ## 6. Publish calendar events
 
-The Calendar view of Otherwise Apps merges every app's `<data root>/<id>/events.json`
+The Calendar view of Otherwise Hub merges every app's `<data root>/<id>/events.json`
 (SPEC §9). Publish from the app's core when its data changes (start, after edits, on its
 timer), off the UI thread for big data sets; `publish` skips the write when nothing changed.
 
@@ -228,8 +228,17 @@ events::clear(&Root::system(), "vigia")?;
 - Prefer one event with a rule (`FREQ=MONTHLY`, `FREQ=YEARLY`) over many instances; when you
   write instances (computed pay dates, shifted to business days), give them a common `series`
   and cover about a year (`window`).
+- Titles say **what and whose**, in the user's language, with the real date as `start`:
+  "SOAT vence (Mercedes CQC925)", "Nómina: Ana Pérez", "Renovación: Spotify", not the bare
+  kind ("Nómina", "Renewal"). Several of the same kind on one day can be one event
+  ("Nómina (3): Ana, Luis, Marta"). Never a full account or card number (last 4 at most).
+- Heads-up days before the real date (a reminder 30 days ahead) are `kind: reminder`: the
+  Calendar hides them unless the user turns on "Show reminders", so never give the real date
+  that kind.
 - Private things (amounts, health, salaries): `busy_only(true)` and leave the amount out of
-  the title; make it a setting ("Hide details in Otherwise Apps", default on for money).
+  the title; make it a setting ("Hide amounts in Otherwise Hub", default on for money). Names
+  may stay: the Hub shows busy-only titles only in its own window, and exports / assistants
+  get "Busy".
 - `ics::write` gives you an `.ics` export for free; `holidays` gives the same holidays the
   Calendar shows (`holidays::shift` for business days).
 - Every event's `link` should open the thing in your app (register `otherwise-<id>://`, §1).

@@ -6,7 +6,7 @@
 //! - macOS: `<Name>.app` in `/Applications` and `~/Applications`; the bundle's
 //!   `CFBundleIdentifier` must match (a same-named app from someone else is not ours), the
 //!   version comes from `CFBundleShortVersionString`, the command line from `Contents/MacOS`.
-//! - Windows: `%LOCALAPPDATA%\Programs\Otherwise\<install name>\` (where Otherwise Apps installs),
+//! - Windows: `%LOCALAPPDATA%\Programs\Otherwise\<install name>\` (where Otherwise Hub installs),
 //!   then `%ProgramFiles%\Otherwise\<install name>\`.
 //! - Linux: `~/.local/opt/otherwise/<install name>/`, then `/opt/otherwise/<install name>/`.
 //! - Everywhere: the command-line binary on `PATH` (plus the usual bin folders GUI apps don't
@@ -132,11 +132,11 @@ pub const HUB_ID: &str = link::HUB_APP;
 /// Capabilities list what the integration contract allows for each app; an app that hasn't
 /// shipped one yet simply isn't found doing it (no `mcp` subcommand → the hub skips it).
 pub static KNOWN: &[KnownApp] = &[
-    KnownApp { id: HUB_ID, name: "Otherwise Apps", bundle_id: "io.github.otherwisetech.otherwise-apps", app_name: "Otherwise Apps", install_name: "otherwise-apps", binary: "otherwise-apps", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Today, Entities] },
-    KnownApp { id: "expense", name: "expense", bundle_id: "io.github.otherwisetech.expense", app_name: "expense", install_name: "expense", binary: "expense", cli: &["expense-cli", "expense"], mcp_args: &["mcp"], mcp_write_arg: Some("--allow-writes"), open_source: false, capabilities: &[DeepLinks, Today, Entities, Mcp, Calendar] },
+    KnownApp { id: HUB_ID, name: "Otherwise Hub", bundle_id: "io.github.otherwisetech.otherwise-apps", app_name: "Otherwise Apps", install_name: "otherwise-apps", binary: "otherwise-apps", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Today, Entities] },
+    KnownApp { id: "expense", name: "expense Business", bundle_id: "io.github.otherwisetech.expense", app_name: "expense", install_name: "expense", binary: "expense", cli: &["expense-cli", "expense"], mcp_args: &["mcp"], mcp_write_arg: Some("--allow-writes"), open_source: false, capabilities: &[DeepLinks, Today, Entities, Mcp, Calendar] },
     KnownApp { id: "vigia", name: "Vigía", bundle_id: "io.github.otherwisetech.vigia-app", app_name: "Vigía", install_name: "vigia", binary: "vigia-app", cli: &["vigia"], mcp_args: &["mcp"], mcp_write_arg: Some("--allow-writes"), open_source: false, capabilities: &[DeepLinks, Today, Entities, Mcp, Calendar] },
     KnownApp { id: "nodo", name: "Nodo", bundle_id: "io.github.otherwisetech.nodo-app", app_name: "Nodo", install_name: "nodo", binary: "nodo-app", cli: &["nodo"], mcp_args: &["mcp"], mcp_write_arg: Some("--allow-writes"), open_source: false, capabilities: &[DeepLinks, Today, Entities, Mcp] },
-    KnownApp { id: "genealogy", name: "genealogy-rs", bundle_id: "io.github.otherwisetech.genealogy-rs", app_name: "genealogy-rs", install_name: "genealogy-rs", binary: "genealogy-rs", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Entities, Calendar] },
+    KnownApp { id: "genealogy", name: "genealogy", bundle_id: "io.github.otherwisetech.genealogy-rs", app_name: "genealogy-rs", install_name: "genealogy-rs", binary: "genealogy-rs", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Entities, Calendar] },
     KnownApp { id: "mosaico", name: "mosaico", bundle_id: "io.github.otherwisetech.mosaico", app_name: "mosaico", install_name: "mosaico", binary: "mosaico", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Today] },
     KnownApp { id: "diskmap", name: "diskmap", bundle_id: "io.github.otherwisetech.diskmap", app_name: "diskmap", install_name: "diskmap", binary: "diskmap", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Today] },
     KnownApp { id: "rama", name: "rama", bundle_id: "io.github.otherwisetech.rama", app_name: "rama", install_name: "rama", binary: "rama", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Today] },
@@ -144,7 +144,7 @@ pub static KNOWN: &[KnownApp] = &[
     KnownApp { id: "helio", name: "Helio", bundle_id: "com.otherwisetech.helio", app_name: "Helio", install_name: "helio", binary: "helio", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: false, capabilities: &[DeepLinks, Calendar] },
     KnownApp { id: "mi-huerta", name: "Mi Huerta", bundle_id: "com.otherwisetech.mi-huerta", app_name: "Mi Huerta", install_name: "mi-huerta", binary: "mi-huerta", cli: &["mi-huerta-cli"], mcp_args: &["mcp"], mcp_write_arg: None, open_source: true, capabilities: &[DeepLinks, Mcp, Calendar] },
     // one binary: the GUI also answers `mcp [--book <folder>] [--propose | --allow-writes]`
-    KnownApp { id: "expense-me", name: "expense me", bundle_id: "com.otherwisetech.expense-me", app_name: "expense me", install_name: "expense-me", binary: "expense-me", cli: &["expense-me"], mcp_args: &["mcp"], mcp_write_arg: Some("--allow-writes"), open_source: false, capabilities: &[DeepLinks, Mcp] },
+    KnownApp { id: "expense-me", name: "expense me", bundle_id: "com.otherwisetech.expense-me", app_name: "expense me", install_name: "expense-me", binary: "expense-me", cli: &["expense-me"], mcp_args: &["mcp"], mcp_write_arg: Some("--allow-writes"), open_source: false, capabilities: &[DeepLinks, Mcp, Calendar] },
     // the Surco suite's launcher; its tools (com.otherwisetech.surco.<tool>) describe themselves
     // with an `otherwise-app.json` (APP_MANIFEST)
     KnownApp { id: "surco", name: "Surco", bundle_id: "com.otherwisetech.surco", app_name: "Surco", install_name: "surco", binary: "surco", cli: &[], mcp_args: &[], mcp_write_arg: None, open_source: false, capabilities: &[] },
@@ -232,7 +232,7 @@ pub struct Installed {
     pub bundle_id: Option<String>,
 }
 
-/// The marker Otherwise Apps writes into Windows / Linux installs.
+/// The marker Otherwise Hub writes into Windows / Linux installs.
 pub const MARKER: &str = ".otherwise-install.json";
 
 /// `version` from the marker in `dir`, if it is `id`'s.

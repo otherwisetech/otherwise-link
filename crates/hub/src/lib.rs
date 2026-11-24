@@ -9,7 +9,7 @@
 //!   `entities_upsert` and `entities_link` (see [`tools`]).
 //! - **Read-only by default.** Write tools (ours, and every child tool not annotated
 //!   `readOnlyHint: true`) are offered only when the user turned on "Allow write tools" in
-//!   Otherwise Apps (`hub.json` → `mcpWrites`), and children are started with their write flag
+//!   Otherwise Hub (`hub.json` → `mcpWrites`), and children are started with their write flag
 //!   (`--allow-writes`) only then. The setting is checked again on every write call, so turning
 //!   it off takes effect at once.
 //! - **Read-only fallback.** An app that refuses its write flag at start (it exits, closes or

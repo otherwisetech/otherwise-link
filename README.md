@@ -20,7 +20,7 @@ macOS, Windows and Linux.
 
 ```toml
 [dependencies]
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.3" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.4" }
 ```
 
 ```rust
@@ -39,11 +39,11 @@ today::publish(&Root::system(), "vigia", &[
 ## Privacy and safety
 
 - Everything stays in one folder the user picks, the data root (default `~/.otherwise`; it can
-  be moved to OneDrive, Dropbox, iCloud Drive… from Otherwise Apps). Moves are copy-verify-then-
+  be moved to OneDrive, Dropbox, iCloud Drive… from Otherwise Hub). Moves are copy-verify-then-
   delete; files open on another computer are protected by a lock. That is not multi-device sync.
 - The entity registry is **opt-in**: nothing creates it until the user turns it on in
-  Otherwise Apps.
-- `otherwise-hub` is **read-only** unless the user enables write tools in Otherwise Apps, and
+  Otherwise Hub.
+- `otherwise-hub` is **read-only** unless the user enables write tools in Otherwise Hub, and
   that switch is checked on every call. It never edits your MCP client's configuration.
 
 ## MCP

@@ -1,7 +1,7 @@
 //! Opening links and URLs with the system's handler.
 //!
 //! [`open_link`] tries the target app's own scheme first (`otherwise-vigia://…`) and falls back
-//! to `otherwise://…`, which Otherwise Apps handles (it can say the app isn't installed and offer
+//! to `otherwise://…`, which Otherwise Hub handles (it can say the app isn't installed and offer
 //! to install it). The launcher itself must use [`open_app_link`] when forwarding, or a link to
 //! a missing app would bounce back to it forever.
 use crate::link::{self, Link};

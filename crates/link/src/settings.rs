@@ -1,4 +1,4 @@
-//! `hub.json` in the shared folder: the switches that apply to every app. Otherwise Apps edits it
+//! `hub.json` in the shared folder: the switches that apply to every app. Otherwise Hub edits it
 //! (Settings → Hub); apps and `otherwise-hub` only read it.
 //!
 //! ```json
