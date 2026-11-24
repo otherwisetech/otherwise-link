@@ -16,11 +16,25 @@ pub struct ChildSpec {
     pub name: String,
     pub program: PathBuf,
     pub args: Vec<String>,
+    /// The flag in `args` that lets the app write (`--allow-writes`), if it was passed.
+    pub write_arg: Option<String>,
+}
+
+impl ChildSpec {
+    /// The same server without its write flag, or None when it wasn't started with one. Only
+    /// ever removes write permission.
+    pub fn without_writes(&self) -> Option<ChildSpec> {
+        let w = self.write_arg.as_ref()?;
+        let args: Vec<String> = self.args.iter().filter(|a| *a != w).cloned().collect();
+        (args.len() < self.args.len()).then(|| ChildSpec { args, write_arg: None, ..self.clone() })
+    }
 }
 
 pub struct ChildServer {
     pub spec: ChildSpec,
     proc: Child,
+    /// The tail of its stderr (kept to explain a failed start).
+    stderr: Arc<Mutex<Vec<u8>>>,
     stdin: Arc<Mutex<ChildStdin>>,
     rx: Receiver<Value>,
     next_id: i64,
@@ -37,6 +51,8 @@ pub enum CallError {
     Gone,
     Rpc { code: i64, message: String },
     Io(String),
+    /// It exited while starting: its exit code and the last of what it printed on stderr.
+    Exited { code: Option<i32>, stderr: String },
 }
 
 impl std::fmt::Display for CallError {
@@ -46,6 +62,13 @@ impl std::fmt::Display for CallError {
             CallError::Gone => write!(f, "the app's MCP server stopped"),
             CallError::Rpc { code, message } => write!(f, "{message} ({code})"),
             CallError::Io(e) => write!(f, "{e}"),
+            CallError::Exited { code, stderr } => {
+                match code {
+                    Some(c) => write!(f, "the app's MCP server exited with code {c}")?,
+                    None => write!(f, "the app's MCP server exited")?,
+                }
+                if !stderr.is_empty() { write!(f, ": {stderr}") } else { Ok(()) }
+            }
         }
     }
 }
@@ -60,7 +83,7 @@ impl ChildServer {
     /// Starts the child, runs the `initialize` handshake and reads its tools, all within `timeout`.
     pub fn start(spec: &ChildSpec, timeout: Duration) -> Result<ChildServer, CallError> {
         let mut cmd = Command::new(&spec.program);
-        cmd.args(&spec.args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+        cmd.args(&spec.args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -70,6 +93,22 @@ impl ChildServer {
         let mut proc = cmd.spawn().map_err(|e| CallError::Io(e.to_string()))?;
         let stdin = Arc::new(Mutex::new(proc.stdin.take().ok_or(CallError::Gone)?));
         let stdout = proc.stdout.take().ok_or(CallError::Gone)?;
+        let stderr = Arc::new(Mutex::new(Vec::new()));
+        if let Some(mut err) = proc.stderr.take() {
+            let tail = stderr.clone();
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 1024];
+                while let Ok(n) = std::io::Read::read(&mut err, &mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    let mut t = tail.lock().unwrap_or_else(|e| e.into_inner());
+                    t.extend_from_slice(&buf[..n]);
+                    let over = t.len().saturating_sub(STDERR_TAIL);
+                    t.drain(..over);
+                }
+            });
+        }
         let (tx, rx) = channel();
         let answer = stdin.clone();
         std::thread::spawn(move || {
@@ -88,15 +127,12 @@ impl ChildServer {
                 }
             }
         });
-        let mut c = ChildServer { spec: spec.clone(), proc, stdin, rx, next_id: 1, tools: vec![], server_name: None, instructions: None };
+        let mut c = ChildServer { spec: spec.clone(), proc, stderr, stdin, rx, next_id: 1, tools: vec![], server_name: None, instructions: None };
         let deadline = Instant::now() + timeout;
         let init = c.request("initialize", json!({"protocolVersion": rpc::PROTOCOL_VERSIONS[1], "capabilities": {}, "clientInfo": {"name": "otherwise-hub", "version": env!("CARGO_PKG_VERSION")}}), left(deadline));
         let init = match init {
             Ok(v) => v,
-            Err(e) => {
-                c.kill();
-                return Err(e);
-            }
+            Err(e) => return Err(c.failed(e)),
         };
         c.server_name = init.pointer("/serverInfo/name").and_then(Value::as_str).map(str::to_string);
         c.instructions = init.get("instructions").and_then(Value::as_str).map(str::to_string);
@@ -109,10 +145,7 @@ impl ChildServer {
             };
             let page = match c.request("tools/list", params, left(deadline)) {
                 Ok(p) => p,
-                Err(e) => {
-                    c.kill();
-                    return Err(e);
-                }
+                Err(e) => return Err(c.failed(e)),
             };
             c.tools.extend(page.get("tools").and_then(Value::as_array).cloned().unwrap_or_default());
             cursor = page.get("nextCursor").and_then(Value::as_str).map(str::to_string);
@@ -145,6 +178,38 @@ impl ChildServer {
         }
     }
 
+    /// A failed start: if the process exited, says so with its code and stderr; then kills it.
+    fn failed(&mut self, e: CallError) -> CallError {
+        let e = if matches!(e, CallError::Gone | CallError::Rpc { .. }) {
+            // stdout closed or initialize refused: give it a moment to exit and finish stderr
+            let deadline = Instant::now() + Duration::from_millis(500);
+            let mut status = None;
+            while Instant::now() < deadline {
+                if let Ok(Some(s)) = self.proc.try_wait() {
+                    status = Some(s);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            std::thread::sleep(Duration::from_millis(20));
+            let stderr = self.stderr_tail();
+            match (status, e) {
+                (Some(s), CallError::Gone) => CallError::Exited { code: s.code(), stderr },
+                (_, e) => e,
+            }
+        } else {
+            e
+        };
+        self.kill();
+        e
+    }
+
+    /// The last line(s) it wrote on stderr, trimmed.
+    pub fn stderr_tail(&self) -> String {
+        let t = self.stderr.lock().unwrap_or_else(|e| e.into_inner());
+        String::from_utf8_lossy(&t).trim().lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string()
+    }
+
     pub fn alive(&mut self) -> bool {
         matches!(self.proc.try_wait(), Ok(None))
     }
@@ -160,6 +225,9 @@ impl Drop for ChildServer {
         self.kill();
     }
 }
+
+/// How much of a child's stderr is kept.
+const STDERR_TAIL: usize = 4096;
 
 fn left(deadline: Instant) -> Duration {
     deadline.saturating_duration_since(Instant::now())

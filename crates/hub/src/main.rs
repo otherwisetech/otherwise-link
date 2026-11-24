@@ -35,7 +35,7 @@ fn main() {
             if json {
                 let v: Vec<serde_json::Value> = status
                     .iter()
-                    .map(|s| serde_json::json!({"app": s.app, "name": s.name, "program": s.program, "tools": s.tools.as_ref().ok(), "error": s.tools.as_ref().err()}))
+                    .map(|s| serde_json::json!({"app": s.app, "name": s.name, "program": s.program, "tools": s.tools.as_ref().ok(), "error": s.tools.as_ref().err(), "readOnly": s.read_only.is_some(), "readOnlyReason": s.read_only}))
                     .collect();
                 println!("{}", serde_json::json!({"apps": v, "writes": hub.writes(), "tools": hub.tool_list().len()}));
             } else {
@@ -44,7 +44,10 @@ fn main() {
                 }
                 for s in &status {
                     match &s.tools {
-                        Ok(n) => println!("{:<10} {n} tools  ({})", s.app, s.program),
+                        Ok(n) => match &s.read_only {
+                            Some(why) => println!("{:<10} {n} tools, read-only: write mode refused ({why})  ({})", s.app, s.program),
+                            None => println!("{:<10} {n} tools  ({})", s.app, s.program),
+                        },
                         Err(e) => println!("{:<10} unavailable: {e}  ({})", s.app, s.program),
                     }
                 }

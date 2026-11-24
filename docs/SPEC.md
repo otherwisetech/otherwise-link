@@ -377,6 +377,10 @@ write flag only when `mcpWrites` is on, and offers:
 - `entities_search`, `entities_get`, `today`, `calendar_events` (§9.4), `open_link`; with writes on, `entities_upsert` and
   `entities_link` (registry changes are recorded with app id `mcp`).
 
+An app MAY refuse the write flag (exit non-zero at start, with the reason on stderr), for
+example when its own settings don't allow agent changes; the hub (0.5.3+) then starts it again
+without the flag and offers only its read tools for the rest of that hub session (never the
+other way round). An app that fails both ways is skipped with its error.
 Writes are re-checked against `hub.json` on every call. A child that fails to start within 15 s
 is skipped; one that died is restarted once per call; a call that times out (120 s) kills it.
 

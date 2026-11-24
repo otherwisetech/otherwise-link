@@ -12,6 +12,10 @@
 //!   Otherwise Apps (`hub.json` → `mcpWrites`), and children are started with their write flag
 //!   (`--allow-writes`) only then. The setting is checked again on every write call, so turning
 //!   it off takes effect at once.
+//! - **Read-only fallback.** An app that refuses its write flag at start (it exits, closes or
+//!   refuses `initialize`: expense does when the book doesn't allow agent changes) is started
+//!   again without it and offered read-only for the rest of the hub session; the hub logs it once
+//!   on stderr and `ChildStatus::read_only` says why. The fallback only removes write permission.
 pub mod child;
 pub mod hub;
 pub mod rpc;
