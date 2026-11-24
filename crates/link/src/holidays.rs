@@ -1,5 +1,5 @@
 //! Public holidays computed from their rules (no data files, no network), shared by every app so
-//! Vigía, expense and Otherwise Apps' calendar agree: Colombia (Ley Emiliani Monday moves and the
+//! Vigía, expense and Otherwise Hub's calendar agree: Colombia (Ley Emiliani Monday moves and the
 //! Easter-based days), US federal, Wyoming state offices, Spain (national), Mexico (federal),
 //! Brazil (national) and Canada (federal); plus business-day shifting.
 //!

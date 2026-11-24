@@ -144,15 +144,15 @@ fn new_apps_are_known() {
 fn expense_me_matches_its_own_manifest() {
     let k = apps::known("expense-me").unwrap().spec();
     assert_eq!((k.cli.as_slice(), k.mcp_args.as_slice(), k.mcp_write_arg.as_deref()), (&["expense-me".to_string()][..], &["mcp".to_string()][..], Some("--allow-writes")));
-    assert_eq!(k.capabilities, [Capability::DeepLinks, Capability::Mcp]);
+    assert_eq!(k.capabilities, [Capability::DeepLinks, Capability::Mcp, Capability::Calendar]);
     assert_eq!(k.scheme().as_deref(), Some("otherwise-expense-me"));
-    // what expense me 0.1 ships in `Contents/Resources/otherwise-app.json`
+    // what expense me 0.3.12+ ships in `Contents/Resources/otherwise-app.json`
     let t = tempfile::tempdir().unwrap();
     let f = t.path().join(apps::APP_MANIFEST);
     fs::write(&f, r#"{"schema": 1, "id": "expense-me", "name": "expense me",
  "bundleId": "com.otherwisetech.expense-me", "binary": "expense-me",
  "cli": ["expense-me"], "mcpArgs": ["mcp"], "mcpWriteArg": "--allow-writes",
- "openSource": false, "capabilities": ["deepLinks", "mcp"]}"#).unwrap();
+ "openSource": false, "capabilities": ["deepLinks", "mcp", "calendar"]}"#).unwrap();
     assert_eq!(apps::read_app_manifest(&f, "expense me", "expense-me").unwrap(), k);
 
     // found with its MCP server: the GUI binary is the CLI

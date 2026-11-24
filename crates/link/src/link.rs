@@ -4,7 +4,7 @@
 //!   `otherwise://nodo/device/6f0c…?map=home` a device on a map;
 //!   `otherwise://otherwise-apps/today` the launcher's Today view.
 //! - Each app registers its own scheme, `otherwise-<app>` (`otherwise-vigia://item/42`), and the
-//!   launcher (Otherwise Apps) registers `otherwise://` and forwards to the app. Both forms parse
+//!   launcher (Otherwise Hub) registers `otherwise://` and forwards to the app. Both forms parse
 //!   to the same [`Link`]; [`Link::to_url`] writes the canonical `otherwise://` form and
 //!   [`Link::app_url`] the per-app one.
 //!
@@ -16,7 +16,7 @@ use std::fmt;
 pub const SCHEME: &str = "otherwise";
 /// Per-app schemes are this prefix plus the app id.
 pub const APP_SCHEME_PREFIX: &str = "otherwise-";
-/// The launcher (Otherwise Apps) owns `otherwise://` itself, so its links have no per-app form.
+/// The launcher (Otherwise Hub) owns `otherwise://` itself, so its links have no per-app form.
 pub const HUB_APP: &str = "otherwise-apps";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]

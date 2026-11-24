@@ -1,11 +1,11 @@
 # otherwise-link — for agents and contributors
 
 The shared integration layer of Otherwise Technologies' desktop apps (genealogy-rs, diskmap,
-rama, mosaico, expense, Vigía, Nodo, Otherwise Apps…). Pure Rust, **no GPUI and no UI**, so
+rama, mosaico, expense, Vigía, Nodo, Otherwise Hub…). Pure Rust, **no GPUI and no UI**, so
 open-source and closed-source apps can both depend on it. Apps depend on it by git tag:
 
 ```toml
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.3" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.4" }
 ```
 
 ## Layout

@@ -388,7 +388,7 @@ is skipped; one that died is restarted once per call; a call that times out (120
 
 Added in library 0.3. The Today feed (§5) says what needs attention now; the events feed says
 what is on the calendar (due dates, renewals, planned payments, birthdays, audits…), for
-Otherwise Apps' Calendar view, its combined ICS file and the hub's `calendar_events` tool.
+Otherwise Hub's Calendar view, its combined ICS file and the hub's `calendar_events` tool.
 
 ### 9.1 File
 
@@ -416,7 +416,7 @@ Writers SHOULD skip the write when the list didn't change.
 | `rrule`     | Optional recurrence, the subset of §9.2. Readers that can't parse it show the first occurrence only. |
 | `exdates`   | Days (`YYYY-MM-DD`; an RFC 3339 value counts by its day in the start's offset) the rule skips. |
 | `series`    | Optional: groups expanded instances, for apps that write occurrences instead of a rule. |
-| `kind`      | `due`, `renewal`, `reminder`, `payment`, `payroll`, `tax`, `close`, `birthday`, `anniversary`, `meeting`, `booking`, `task`, `audit`, `maintenance`, `warranty`, `holiday`, `other` (default; unknown kinds read as `other`). |
+| `kind`      | `due`, `renewal`, `reminder`, `payment`, `payroll`, `tax`, `close`, `birthday`, `anniversary`, `meeting`, `booking`, `task`, `audit`, `maintenance`, `warranty`, `holiday`, `other` (default; unknown kinds read as `other`). `reminder` is a heads-up day before an event that has its own entry (readers may hide reminders by default); the real date takes the real kind (`due`, `renewal`…). |
 | `category`  | Optional app label, already translated. |
 | `status`    | `confirmed` (default; unknown values read as it), `tentative`, `done`, `cancelled` (readers leave it out). |
 | `color`     | Optional hint: `#rrggbb` or `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple`, `pink`, `gray`. Readers may color by app instead. |

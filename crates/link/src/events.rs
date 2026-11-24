@@ -1,5 +1,5 @@
 //! The events feed: what each app has on the calendar (due dates, renewals, payments,
-//! birthdays, audits…), merged by Otherwise Apps' Calendar view.
+//! birthdays, audits…), merged by Otherwise Hub's Calendar view.
 //!
 //! Each app owns one file, `<data root>/<app>/events.json`, and rewrites it whole (atomically)
 //! when its events change. The reader ([`read`]) merges every app's file and expands
@@ -42,6 +42,8 @@ pub enum Kind {
     /// A deadline (a document expires, a filing is due).
     Due,
     Renewal,
+    /// A heads-up day before something that has its own event (Vigía's "30 days before");
+    /// the Hub hides these unless the user asks for them.
     Reminder,
     Payment,
     Payroll,
