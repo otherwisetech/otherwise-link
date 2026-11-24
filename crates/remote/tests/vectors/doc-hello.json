@@ -1,0 +1,5 @@
+{
+  "app": "expense", "doc": "acme", "name": "Acme SAS", "role": "viewer", "writable": false,
+  "revision": 1234, "protocol": 1, "readOnlyReason": "role",
+  "seats": { "active": 4, "max": 3, "overSince": "2026-11-20" }
+}

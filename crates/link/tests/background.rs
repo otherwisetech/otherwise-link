@@ -1,6 +1,6 @@
 use otherwise_link::Root;
 use otherwise_link::apps::{self, Locations, Os};
-use otherwise_link::background::{self, Job, Label, Manifest, NotRunnable, Notification};
+use otherwise_link::background::{self, Job, Label, Manifest, NotRunnable, Notification, Serve};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -12,7 +12,7 @@ fn manifest(app: &str) -> Manifest {
     mail.network = true;
     let mut bills = Job::every("bills", Label::en("background.bills", "Bills due"), "1h", &["background", "run", "bills"]);
     bills.exe = Some("expense-cli".into());
-    Manifest { schema: 1, app: app.into(), jobs: vec![mail, bills] }
+    Manifest { schema: 1, app: app.into(), jobs: vec![mail, bills], serve: None }
 }
 
 #[cfg(unix)]
@@ -289,10 +289,39 @@ fn self_described_apps_have_jobs_too() {
     fs::write(c.join("MacOS/surco-riego"), "#!/bin/sh\n").unwrap();
     make_exec(&c.join("MacOS/surco-riego"));
     fs::write(c.join("Resources").join(apps::APP_MANIFEST), r#"{"schema":1,"id":"surco-riego","name":"Surco Riego","bundleId":"com.otherwisetech.surco.riego","binary":"surco-riego"}"#).unwrap();
-    let jobs = Manifest { schema: 1, app: "surco-riego".into(), jobs: vec![Job::every("forecast", Label::en("k", "Forecast"), "6h", &["background", "run", "forecast"])] };
+    let jobs = Manifest { schema: 1, app: "surco-riego".into(), jobs: vec![Job::every("forecast", Label::en("k", "Forecast"), "6h", &["background", "run", "forecast"])], serve: None };
     fs::write(c.join("Resources").join(background::MANIFEST), jobs.to_json()).unwrap();
     let found = background::scan(&loc);
     assert_eq!(found.iter().map(|r| r.spec.id.as_str()).collect::<Vec<_>>(), ["surco-riego"]);
     let plan = background::plan(&found[0], "forecast", &loc).unwrap();
     assert!(plan.program.ends_with("Surco Riego.app/Contents/MacOS/surco-riego"));
+}
+
+#[test]
+fn serve_is_declared_checked_and_ignored_by_older_readers() {
+    let t = tempfile::tempdir().unwrap();
+    let loc = mac(t.path());
+    let app = install_expense(&loc.mac_dirs[0], EXPENSE, false);
+    let mut m = manifest("expense");
+    m.jobs.clear();
+    m.serve = Some(Serve { exe: None, args: vec!["serve".into(), "--stdio".into()], protocol: 1, memory_mb: Some(500), idle_secs: None });
+    let json = m.to_json();
+    assert!(json.contains("\"memoryMb\": 500"));
+    fs::write(app.join("Contents/Resources").join(background::MANIFEST), &json).unwrap();
+    let reg = background::scan(&loc);
+    assert_eq!(reg.len(), 1, "an app that only serves is registered");
+    let p = background::plan_serve(&reg[0], &loc).unwrap();
+    assert_eq!((p.program, p.args), (app.join("Contents/MacOS/expense"), vec!["serve".to_string(), "--stdio".to_string()]));
+    // a bad exe or no args: no serve at all
+    for bad in [r#"{"exe": "../x", "args": ["serve"]}"#, r#"{"args": []}"#] {
+        let j = format!(r#"{{"schema": 1, "app": "expense", "jobs": [], "serve": {bad}}}"#);
+        assert_eq!(Manifest::parse(&j, "expense").unwrap().serve, None, "{bad}");
+    }
+    // an app without serve can't be served
+    fs::write(app.join("Contents/Resources").join(background::MANIFEST), manifest("expense").to_json()).unwrap();
+    let reg = background::scan(&loc);
+    assert_eq!(background::plan_serve(&reg[0], &loc), Err(NotRunnable::NoSuchJob));
+    // removed: not runnable
+    fs::remove_dir_all(&app).unwrap();
+    assert_eq!(background::plan_serve(&reg[0], &loc), Err(NotRunnable::NotInstalled));
 }

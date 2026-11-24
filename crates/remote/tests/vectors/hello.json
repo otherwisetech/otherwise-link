@@ -1,0 +1,8 @@
+{
+  "server": "otherwise",
+  "version": "0.7.0",
+  "protocols": { "min": 1, "max": 1 },
+  "host": "studio",
+  "me": { "login": "ana@example.com", "name": "Ana", "device": "macbookpro", "role": "owner" },
+  "apps": [ { "id": "expense", "version": "0.9.11", "protocol": 1 } ]
+}

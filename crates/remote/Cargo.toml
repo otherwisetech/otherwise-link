@@ -1,0 +1,21 @@
+[package]
+name = "otherwise-remote"
+description = "Client side of the Otherwise server contract (SPEC §12): /v1 types, an HTTP + SSE client, the per-computer server list and tailnet discovery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "otherwise_remote"
+
+# No otherwise-link dependency on purpose: apps on older otherwise-link tags can adopt this crate
+# without moving theirs. Same ureq as expense-rs and otherwise-apps (rustls, no OpenSSL).
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
+
+[dev-dependencies]
+tempfile.workspace = true
