@@ -1,0 +1,13 @@
+: keepalive
+
+event: changed
+id: 1235
+data: {"event":"changed","revision":1235,"tables":["receipts"],"actor":"ana@example.com@macbookpro"}
+
+event: future_kind
+data: {"event":"future_kind","x":1}
+
+event: bye
+id: 1235
+data: {"event":"bye","reason":"rotate"}
+

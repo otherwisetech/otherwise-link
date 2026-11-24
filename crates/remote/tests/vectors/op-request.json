@@ -1,0 +1,5 @@
+{
+  "op": "set_receipt", "args": { "id": "r12", "merchant": "Café Ejemplo" },
+  "baseRevision": 1234, "idempotencyKey": "6f1c0e5a9d2b4c7e8a1f3b5d7c9e0a2b",
+  "command": "set_receipt r12"
+}

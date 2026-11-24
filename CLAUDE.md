@@ -31,6 +31,11 @@ crates/link  otherwise-link (lib `otherwise_link`):
 crates/hub   otherwise-mcp-hub (lib `otherwise_mcp_hub` + bin `otherwise-hub`): child.rs (one
              app's MCP server as a child process), hub.rs (config from discovery, routing,
              read-only gate, restart), tools.rs (entities_* / today / calendar_events / open_link), rpc.rs
+crates/remote otherwise-remote (lib `otherwise_remote`, no otherwise-link dependency): the client of an
+             Otherwise server (SPEC §12): types.rs (/v1 messages, golden vectors in tests/vectors),
+             client.rs (ureq HTTP + snapshot download + SSE), sse.rs, registry.rs (servers.json in
+             the device dir, active server per app, replica folders), discover.rs (tailnet peers
+             from the local Tailscale CLI, /v1/hello probe). Tests use local fake servers only.
 docs/        SPEC.md (formats: normative), INTEGRATING.md (how an app plugs in)
 ```
 
