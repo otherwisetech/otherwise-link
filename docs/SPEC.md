@@ -1,4 +1,4 @@
-# otherwise-link specification, version 1 (library 0.6)
+# otherwise-link specification, version 1 (library 0.7)
 
 Normative description of the formats Otherwise apps share. The Rust crate `otherwise-link`
 implements all of it; an app in another language can follow this document instead.
@@ -39,6 +39,7 @@ entities.db             entity registry (§4), only after the user opted in
 entities.db.lock.json   which computer uses the registry (§2.2)
 today/<app id>.json     Today feeds (§5)
 today/.dismissed.json   dismissals (§5.3)
+<app>/worktrees/<host>.json  worktrees and build caches, per computer (§13, library 0.7)
 <app id>/               the app's default folder for its own data (e.g. vigia/vigia.db)
 <app id>/events.json    the app's calendar events (§9)
 ```
@@ -693,3 +694,54 @@ every start like a job) and speaks the app's socket protocol (expense: `docs/app
 JSON lines on stdin / stdout; lines carrying an `event` key are unsolicited events (§12.3).
 It stops the process after `idleSecs` without requests or subscribers, and kills it above
 `memoryMb`.
+
+## 13. Worktrees and build caches (library 0.7)
+
+A development app (rama) tells a disk app (diskmap) which worktrees it knows, how much disk
+each one and its build folders use, and whether it would remove each worktree, with why not.
+
+### 13.1 File
+
+`<root>/<app id>/worktrees/<host key>.json`, written only by that app on that computer, whole
+and atomically (§5.1). Paths are only meaningful on the computer that measured them and the
+root may sync between computers, so each computer has its own file. The host key is the
+computer's name (§2.2) with ASCII letters and digits lowercased, every run of other characters
+as one `-`, trimmed of `-`, at most 64 characters, `unknown` when empty.
+
+```json
+{ "schema": 1, "app": "rama", "host": "studio", "updatedAt": "2026-11-28T10:00:00Z",
+  "repos": [ { "root": "/Users/ana/code/shop", "name": "shop", "updatedAt": "2026-11-28T10:00:00Z",
+    "defaultBranch": "origin/main", "reclaimable": 2147483648,
+    "link": "otherwise://rama/reclaim?path=%2FUsers%2Fana%2Fcode%2Fshop",
+    "worktrees": [
+      { "path": "/Users/ana/code/shop", "branch": "main", "main": true, "bytes": 5368709120,
+        "blockers": ["main"], "caches": [] },
+      { "path": "/Users/ana/code/shop-fix", "branch": "fix/cart", "bytes": 3221225472,
+        "touched": 1764300000, "blockers": ["unpushed"],
+        "caches": [ { "path": "/Users/ana/code/shop-fix/target", "kind": "target",
+                      "bytes": 3000000000, "offered": true } ] } ],
+    "shared": [ { "path": "/Users/ana/.cache/shop-target", "kind": "cargoShared", "bytes": 9 } ] } ] }
+```
+
+| Field | Notes |
+|---|---|
+| `repos[].root` | The main worktree's absolute folder; one entry per repository. |
+| `repos[].reclaimable` | Bytes the writer's own cleanup could free now. |
+| `repos[].link` | Opens the writer's cleanup for the repository (§3). |
+| `worktrees[].bytes` | Whole folder; missing while not measured. |
+| `worktrees[].touched` | Unix seconds of the last work in it (files outside build folders, or HEAD's commit). |
+| `worktrees[].removable` | `true` when the writer would offer to remove it. |
+| `worktrees[].blockers` | Why not: `main`, `open`, `locked`, `changes`, `unreadable`, `unpushed`, `notMerged`, `protectedBranch`, `protectedPlace`, `notMeasured`. |
+| `caches[].kind` | `target`, `incremental`, `nodeModules`, `next`, `buildOutput`, `gradle`, `derivedData`, `cargoShared`. |
+| `caches[].offered` | The writer would offer it in its own cleanup now. |
+
+Readers MUST read only their own computer's file and skip it when its `host` names another
+computer, MUST drop relative paths and paths with `..`, keep only caches strictly inside their
+worktree (`cargoShared` only in `shared`), read unknown kinds and blockers as "other", and
+skip files over 8 MiB or with a newer `schema`.
+
+### 13.2 What it permits
+
+Nothing. The report is information: a reader that offers to delete a folder MUST classify and
+check it itself, and SHOULD leave removing a worktree to the writer through `link`, which opens
+the writer's own confirmation.

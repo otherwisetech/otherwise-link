@@ -20,6 +20,8 @@
 //! - [`storage`] + [`cloud`] + [`lock`]: helpers every app uses for its own files: verified
 //!   SQLite / file / folder copies and moves, rollback journal, cloud-folder detection, conflicted
 //!   copies, and the "open on another computer" lock.
+//! - [`worktrees`]: a development app's worktrees and build caches with their sizes and why each
+//!   can or can't be removed (one file per computer), for a disk app to show.
 //!
 //! The formats are specified in `docs/SPEC.md`; `docs/INTEGRATING.md` is the how-to for apps.
 pub mod apps;
@@ -42,6 +44,7 @@ pub mod storage;
 pub mod tax;
 pub mod text;
 pub mod today;
+pub mod worktrees;
 
 pub use entity::{Entity, Kind};
 pub use link::Link;

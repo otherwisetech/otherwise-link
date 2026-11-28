@@ -264,6 +264,22 @@ background::notify(&Root::system(), "expense", &Notification::new("receipt-123",
 println!("{}", Report::status("2 new receipts").line()); // or Report::idle() if not set up
 ```
 
+## 7b. Worktrees and build caches (development and disk apps)
+
+A development app publishes what it knows about its repositories' disk (SPEC §13); a disk app
+reads it. One file per computer; the reader takes only its own computer's.
+
+```rust
+use otherwise_link::{Root, worktrees};
+// writer (rama), after measuring a repository
+worktrees::upsert(&Root::system(), "rama", repo, &now_rfc3339)?;
+// reader (diskmap)
+if let Ok(Some(report)) = worktrees::read(&Root::system(), "rama") { /* show it */ }
+```
+
+The report never authorises a delete: classify and check every folder yourself, and open the
+writer's `link` for worktree removal.
+
 ## 8. Checklist per app
 
 - [ ] Depend on otherwise-link by tag; rusqlite 0.37.
