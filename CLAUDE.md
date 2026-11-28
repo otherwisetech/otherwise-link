@@ -5,7 +5,7 @@ rama, mosaico, expense, Vigía, Nodo, Otherwise Hub…). Pure Rust, **no GPUI an
 open-source and closed-source apps can both depend on it. Apps depend on it by git tag:
 
 ```toml
-otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.5.4" }
+otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.7.0" }
 ```
 
 ## Layout
@@ -27,7 +27,8 @@ crates/link  otherwise-link (lib `otherwise_link`):
              / heartbeat, stale), fsutil.rs (atomic writes), text.rs (accent folding),
              background.rs (otherwise-background.json in the install, scan / verify-before-run
              plan, job reports, notification outbox, per-app lease so one computer runs a
-             root's jobs); paths.rs also has device_dir() (this computer's state, never synced)
+             root's jobs), worktrees.rs (<root>/<app>/worktrees/<host>.json: worktrees, build caches,
+             sizes and removal blockers, one file per computer); paths.rs also has device_dir() (this computer's state, never synced)
 crates/hub   otherwise-mcp-hub (lib `otherwise_mcp_hub` + bin `otherwise-hub`): child.rs (one
              app's MCP server as a child process), hub.rs (config from discovery, routing,
              read-only gate, restart), tools.rs (entities_* / today / calendar_events / open_link), rpc.rs
